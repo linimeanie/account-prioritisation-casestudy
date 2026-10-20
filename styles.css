@@ -394,3 +394,9 @@ dl.sum dd { white-space: normal; }
 .note-from .avatar { flex-basis: 56px; height: 56px; }
 .note-from p { font-size: 15px; }
 .note-from { grid-column: 1 / -1; }
+.panel-note { margin: 0 0 14px; }
+.panel-note .note-from { margin-top: 0; }
+.note-from .avatar { background: #efe9fd; }
+.bubble .tier-legend { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.hero .panel-note { grid-column: 1 / -1; margin: 4px 0 0; }
+.ex-lead { max-width: none; text-wrap: pretty; }

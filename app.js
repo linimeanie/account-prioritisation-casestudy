@@ -164,6 +164,10 @@ function territoryText() {
   });
 }
 
+// A short note from Lina, used for the page intros. The avatar is a small whale.
+const WHALE = '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#efe9fd"/><path d="M30 20c-1-4-4-6-6-6m6 6c1-4 4-6 6-6m-6 6v-6" stroke="#a285ef" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M9 38c0-8 8-13 19-13 10 0 17 5 19 11l4-5c2-2 5-1 5 1l-2 7 3 5c1 2-1 4-3 3l-6-2c-4 5-11 8-20 8C16 53 9 47 9 38z" fill="#6a3be5"/><path d="M12 42c3 5 9 8 16 8 6 0 11-2 15-5" stroke="#efe9fd" stroke-width="2" fill="none" stroke-linecap="round" opacity=".7"/><circle cx="20" cy="35" r="2.2" fill="#0e022d"/></svg>';
+const linaNote = (text, extra = '') => `<div class="panel-note"><div class="note-from"><div class="avatar" aria-hidden="true">${WHALE}</div><div class="bubble"><div class="who"><b>Lina</b><span>Case study author</span></div><p>${text}</p>${extra}</div></div></div>`;
+
 function renderIntro() {
   const f = (kind, label, desc, optional) => {
     const ok = kind === 'settings' ? state.settingsSource !== 'built-in defaults' : !!state.data[kind];
@@ -176,10 +180,7 @@ function renderIntro() {
   <div class="wrap">
     <section class="hero">
       <h1>Each SDR's best accounts for the week,<br><em>with the reason behind every pick</em></h1>
-      <div class="note-from">
-        <div class="avatar" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#efe9fd"/><path d="M14 58c1-12 8-19 18-19s17 7 18 19" fill="#6a3be5"/><path d="M17 33c-2-14 5-23 15-23s17 9 15 23c-1 7-3 12-3 12H20s-2-5-3-12z" fill="#0e022d"/><circle cx="32" cy="30" r="10.5" fill="#f6d2bf"/><path d="M21 28c2-8 7-11 12-11 5 0 9 3 11 9-6 0-12-2-15-6-2 4-5 7-8 8z" fill="#0e022d"/><path d="M27 41h10v5c-2 2-8 2-10 0z" fill="#f6d2bf"/></svg></div>
-        <div class="bubble"><div class="who"><b>Lina</b><span>Case study author</span></div><p>Drop in the three case files and the prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. The signal weights and scoring rules live in Leadership settings on the right: change any of them, before or after the run, and the lists re-rank instantly.</p></div>
-      </div>
+      ${linaNote(`Drop in the three case files and the prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. The signal weights and scoring rules live in Leadership settings on the right: change any of them, before or after the run, and the lists re-rank instantly.`)}
     </section>
     <div class="intro-grid">
       <div class="card pad span-2 stack">
@@ -289,8 +290,7 @@ function accCard(l, s) {
 }
 function pBoard() {
   const r = state.result;
-  return `<p class="panel-intro">One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.</p>
-  ${tierLegend()}
+  return `${linaNote('One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.', tierLegend())}
   <div class="board">${r.team.map(t => {
     const rows = r.lists.filter(l => l.sdr === t.name);
     const open = state.expanded[t.id];
@@ -329,7 +329,7 @@ function pFunnel() {
   const steps = funnelSteps();
   const total = steps[0].items.length || 1;
   const open = steps.find(s => s.k === state.funnelOpen);
-  return `<p class="panel-intro">Every one of the ${total} accounts ends up somewhere, for a stated reason. Click a step to see the accounts in it.</p>
+  return `${linaNote(`Every one of the ${total} accounts ends up somewhere, for a stated reason. Click a step to see the accounts in it.`)}
   <div class="funnel">${steps.filter(s => s.items.length || !s.minus).map(s => `
     <div class="card fstep ${s.final ? 'final' : ''}" data-funnel="${s.k}">
       <div class="fl"><b>${s.minus ? '− ' : s.final ? '= ' : ''}${s.label}</b><span>${s.desc}</span></div>
@@ -357,7 +357,7 @@ function pExplain() {
   const path = pts.map(([d, v], i) => `${i ? 'L' : 'M'}${(d / lb) * 300},${100 - v * 90}`).join(' ');
   const tbl = (sec, label) => `<table><thead><tr><th>${label}</th><th class="r">Multiplier</th></tr></thead><tbody>${S.entries(sec).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r num">×${esc(v)}</td></tr>`).join('')}</tbody></table>`;
   const devSteps = S.entries('fit_devices').map(([k, v]) => [Number(k), v]).sort((a, b) => b[0] - a[0]);
-  return `<p class="panel-intro">The score answers one question: which accounts should this rep call this week? Each part below is a setting leadership can change.</p>
+  return `${linaNote('The score answers one question: which accounts should this rep call this week? Each part below is a setting leadership can change.')}
   <div class="formula">
     <div class="card fx"><div class="t">Intent</div><p>Is the account moving right now? Each signal's weight × its freshness.</p></div><div class="op">×</div>
     <div class="card fx"><div class="t">Fit</div><p>How valuable is a win? Devices in the field, plus provider and size.</p></div><div class="op">×</div>
@@ -378,7 +378,6 @@ function pExplain() {
         ${rest.length ? bar(`${own.length ? 'Other' : 'All'} ${rest.length} variant${rest.length > 1 ? 's' : ''}, e.g. <i>${esc(rest[0][0])}</i>`, Number(wType[t] ?? 3), rest.reduce((x, [, n]) => x + n, 0)) : ''}</div>`;
     }).join('')}
     </div>
-    <p class="faint" style="font-size:12.5px;margin:12px 0 0">In brackets: how often the signal appears in the data. Variants without their own weight use their type's default.</p>
   </div>
   <div class="ex-grid">
     <div class="card"><h3>2. Fresh signals count more</h3>
@@ -446,7 +445,7 @@ function pFixes() {
   };
   for (const i of state.result.issues) (groups[label(i)] = groups[label(i)] || []).push(i);
   const names = Object.fromEntries(state.result.scored.map(s => [s.account_id, s.company_name]));
-  return `<p class="panel-intro">The brief says the data is deliberately messy. Every correction is logged here, so the result can be audited and the source data fixed upstream.</p>
+  return `${linaNote('The brief says the data is deliberately messy. Every correction is logged here, so the result can be audited and the source data fixed upstream.')}
   ${Object.entries(groups).map(([g, list]) => `<details class="set" ${state.fixOpen === g ? 'open' : ''} data-fix="${esc(g)}"><summary>${esc(g)} <span class="chip">${list.length}</span></summary><div class="sb"><p class="why">${esc(why[g] || '')}</p>
     <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Problem</th><th>Action</th></tr></thead><tbody>${list.map(i => `<tr><td>${esc(names[i.item] || i.item)} <span class="faint mono">${names[i.item] ? esc(i.item) : ''}</span></td><td>${esc(i.problem)}</td><td>${esc(i.action)}</td></tr>`).join('')}</tbody></table></div></div></details>`).join('')}`;
 }
@@ -516,11 +515,7 @@ function briefHtml(b) {
 }
 function message(t) { return briefText(brief(t)); }
 function pMessages() {
-  return `<div class="msg-intro card">
-      <b>How the brief is built</b>
-      <p>It's a briefing, not the list. Every rep gets the same shape, whether they have 15 accounts or 25: the account to start with and why, a line for each baked potato, a count and a few names for the rest, and heads-ups on AEs, closed-lost history and leadership pins. Every name opens the account. No scores, because they mean nothing to a rep.</p>
-      ${tierLegend()}
-    </div>
+  return `${linaNote("Each rep's Monday brief is a briefing, not the list, with the same shape whether they have 15 accounts or 25: where to start, a line per baked potato, a few names for the rest, and heads-ups on AEs and closed-lost history. Every name opens the account. No scores: they mean nothing to a rep.", tierLegend())}
     <div class="msgs">${state.result.team.map(t => `<div class="card msg"><div class="mh"><span>To <b>${esc(t.name)}</b> · Monday 07:00</span><button class="btn small" data-copy="${esc(t.id)}">Copy</button></div><div class="mail">${briefHtml(brief(t))}</div></div>`).join('')}</div>`;
 }
 
@@ -570,7 +565,7 @@ function pAll() {
     return `<select data-colf="${c.k}"><option value="">All</option>${opts(c).map(o => `<option ${String(v) === String(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   };
   const active = Object.values(f).filter(v => v !== undefined && v !== '').length;
-  return `<div class="toolbar"><span class="muted" style="font-size:13px"><b style="color:var(--text)">${items.length}</b> of ${all.length} accounts · click a column to sort, use the row below it to filter</span>
+  return `${linaNote('Every account, one row each, with where it ended up. Click a column header to sort, use the row under it to filter, and click any row to open the account.')}<div class="toolbar"><span class="muted" style="font-size:13px"><b style="color:var(--text)">${items.length}</b> of ${all.length} accounts</span>
     ${active ? `<button class="btn small" id="clearFilters">Clear ${active} filter${active > 1 ? 's' : ''}</button>` : ''}</div>
     <div class="card"><div class="tbl-wrap all-tbl"><table><thead>
       <tr>${ALL_COLS.map(c => `<th class="sortable ${c.num ? 'r' : ''} ${state.sort.key === c.k ? 'on' : ''}" data-sort="${c.k}">${c.label}<span class="arr">${state.sort.key === c.k ? (state.sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span></th>`).join('')}</tr>
