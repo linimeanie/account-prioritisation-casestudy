@@ -2,7 +2,9 @@
 
 The same cleaning, scoring and routing as the website, as an n8n automation.
 
-![Workflow](workflow.svg)
+![The workflow in n8n, with its explanatory sticky notes](canvas.png)
+
+![Workflow diagram](workflow.svg)
 
 **How it runs:** upload the three case files (accounts, signals, sdrs) in the n8n form, and the workflow returns one Excel file with each SDR's ranked list. An optional fourth file, `settings.xlsx`, overrides the leadership settings.
 
