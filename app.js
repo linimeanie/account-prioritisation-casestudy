@@ -86,6 +86,7 @@ async function addFiles(fileList) {
       state.names[kind] = f.name;
     } catch (e) { unknown.push(f.name); }
   }
+  state.data = { ...state.data }; // new reference, so the saved copy is refreshed
   if (unknown.length) state.error = `Not recognised: ${unknown.join(', ')}. Expected the accounts, signals and sdrs files (Excel or CSV), plus optionally settings.`;
   if (state.result) run(); else render();
 }
@@ -122,9 +123,32 @@ function run() {
 }
 
 // ---------- render ----------
+// ---------- survive a page reload ----------
+// Kept in sessionStorage: it survives refreshes in the same tab, and is gone when the tab is closed.
+const STORE_DATA = 'emnify-prio-data-v1', STORE_UI = 'emnify-prio-ui-v1';
+let savedDataRef = null;
+function saveState() {
+  try {
+    if (savedDataRef !== state.data) { sessionStorage.setItem(STORE_DATA, JSON.stringify({ data: state.data, names: state.names })); savedDataRef = state.data; }
+    sessionStorage.setItem(STORE_UI, JSON.stringify({ built: !!state.result, tab: state.tab, settings: state.settings, baseSettings: state.baseSettings,
+      settingsSource: state.settingsSource, colFilters: state.colFilters, sort: state.sort, expanded: state.expanded }));
+  } catch { /* storage full or blocked: the page still works, it just won't survive a reload */ }
+}
+function restoreState() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(STORE_DATA) || 'null'), u = JSON.parse(sessionStorage.getItem(STORE_UI) || 'null');
+    if (d && d.data) { state.data = d.data; state.names = d.names || {}; savedDataRef = state.data; }
+    if (u) Object.assign(state, { tab: u.tab || 'board', settings: u.settings || state.settings, baseSettings: u.baseSettings || state.baseSettings,
+      settingsSource: u.settingsSource || state.settingsSource, colFilters: u.colFilters || {}, sort: u.sort || state.sort, expanded: u.expanded || {} });
+    return !!(u && u.built && ready());
+  } catch { return false; }
+}
+function clearSaved() { try { sessionStorage.removeItem(STORE_DATA); sessionStorage.removeItem(STORE_UI); } catch {} savedDataRef = null; }
+
 function render() {
   app.innerHTML = state.result ? renderResults() : renderIntro();
   bindCommon();
+  saveState();
 }
 
 function sdrName(id) {
@@ -745,7 +769,7 @@ function bindCommon() {
   document.querySelectorAll('[data-colf]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', e => {
     state.colFilters[el.dataset.colf] = e.target.value;
     const k = el.dataset.colf, pos = e.target.selectionStart;
-    document.getElementById('panel').innerHTML = panel('all'); bindCommon();
+    document.getElementById('panel').innerHTML = panel('all'); bindCommon(); saveState();
     if (el.tagName === 'INPUT') { const n = document.querySelector(`input[data-colf="${k}"]`); n.focus(); n.setSelectionRange(pos, pos); }
   }));
   document.querySelectorAll('details[data-fix]').forEach(d => d.addEventListener('toggle', () => { if (d.open) state.fixOpen = d.dataset.fix; }));
@@ -760,7 +784,7 @@ document.addEventListener('click', async e => {
   if (t.id === 'clearFilters') { state.colFilters = {}; return render(); }
   if (t.id === 'dlBtn') return downloadExcel();
   if (t.id === 'dlSettings') return downloadSettings();
-  if (t.id === 'resetBtn') { Object.assign(state, { data: { accounts: null, signals: null, sdrs: null }, names: {}, result: null, settings: clone(DEFAULT_SETTINGS), baseSettings: clone(DEFAULT_SETTINGS), settingsSource: 'built-in defaults', error: '' }); return render(); }
+  if (t.id === 'resetBtn') { clearSaved(); Object.assign(state, { data: { accounts: null, signals: null, sdrs: null }, names: {}, result: null, settings: clone(DEFAULT_SETTINGS), baseSettings: clone(DEFAULT_SETTINGS), settingsSource: 'built-in defaults', error: '' }); return render(); }
   if (t.id === 'resetSettings') { state.settings = clone(state.baseSettings); openSettings(); return afterSettingsChange(); }
   if (t.hasAttribute('data-close')) return closeOverlay();
   if (t.hasAttribute('data-open-settings')) return openSettings();
@@ -801,5 +825,5 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOverlay
 
 // offer "Use the case data" only when the files are bundled in /data
 state.noSample = true;
-render();
+if (restoreState()) run(); else render();
 fetch('data/accounts.xlsx', { method: 'HEAD' }).then(r => { state.noSample = !r.ok; if (!state.result) render(); }).catch(() => {});
