@@ -343,3 +343,16 @@ dl.sum dd { margin: 0; font-weight: 550; }
 .tier-legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--muted); margin: -6px 0 16px; }
 .tier-legend .tier { margin-right: 6px; }
 .tier { font-size: 11px; }
+.panel-intro { max-width: none; }
+.acc .food { font-size: 16px; line-height: 1; cursor: help; }
+.msg-intro { display: block; padding: 18px 20px; }
+.msg-intro p { max-width: none; margin: 4px 0 12px; }
+.msg-intro .tier-legend { margin: 0; }
+/* All accounts: sortable, filterable table */
+.all-tbl { max-height: 72vh; overflow: auto; }
+.all-tbl th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.all-tbl th.sortable:hover, .all-tbl th.on { color: var(--accent-text); }
+.all-tbl th .arr { margin-left: 4px; opacity: .5; font-size: 11px; }
+.all-tbl th.on .arr { opacity: 1; }
+.all-tbl tr.frow-h th { top: 37px; background: var(--surface); padding: 6px 8px; text-transform: none; letter-spacing: 0; }
+.all-tbl tr.frow-h select, .all-tbl tr.frow-h input { width: 100%; min-width: 84px; padding: 5px 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font-weight: 450; }

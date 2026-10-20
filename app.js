@@ -16,7 +16,7 @@ const state = {
   expanded: {},
   funnelOpen: null,
   fixOpen: null,
-  search: '', statusFilter: 'all',
+  search: '', colFilters: {}, sort: { key: 'score', dir: 'desc' },
   error: ''
 };
 const app = document.getElementById('app');
@@ -189,9 +189,9 @@ function renderIntro() {
           ${changes ? `<span class="chip warn">${changes} change${changes > 1 ? 's' : ''}</span>` : `<span class="chip">${esc(state.settingsSource === 'built-in defaults' ? 'Defaults' : state.settingsSource)}</span>`}
         </div>
       </div>
-      <div class="card how-card"><div class="n">1</div><b>Clean</b><p>Unify country names, read "NA" as North America, fix regions that contradict the country, and drop duplicate, undated or stale signals. Every fix is logged.</p></div>
-      <div class="card how-card"><div class="n">2</div><b>Score</b><p>Intent × fit × CRM stage × leadership boost. Intent weighs each signal by what it says and how fresh it is. Fit is driven by devices in the field.</p></div>
-      <div class="card how-card"><div class="n">3</div><b>Route</b><p>Best score first, within each SDR's territory, until their weekly capacity is full. Customers, open deals and recently touched accounts are held back.</p></div>
+      <div class="card how-card"><div class="n">1</div><b>Clean</b><p>Unify country names, fix regions that contradict the country, and drop duplicate, undated or stale signals. Every fix is logged, so nothing changes silently.</p></div>
+      <div class="card how-card"><div class="n">2</div><b>Score</b><p>Intent (how strong and fresh the signals are) × fit (devices in the field) × CRM stage (customers and open deals stay with AEs) × leadership boost.</p></div>
+      <div class="card how-card"><div class="n">3</div><b>Route</b><p>Best score first, within each SDR's territory, until their weekly capacity is full. Accounts touched in the last two weeks rest, so nobody is over-contacted.</p></div>
     </div>
     <footer>Prototype for the emnify GTM Engineer case study. All companies and people are fictional. The same logic runs as an n8n workflow; this page is a transparent front end over it.</footer>
   </div>`;
@@ -249,15 +249,15 @@ function accCard(l, s) {
   const first = (l.why_now || '').split('; ')[0];
   return `<div class="acc ${isTop ? 'top' : ''} ${state.newlyIn.has(l.account_id) ? 'new' : ''}" data-acc="${esc(l.account_id)}">
     ${isTop ? '<div class="badge">Start here</div>' : ''}
-    <div class="row1"><span class="rk">#${l.rank}</span><span class="nm">${esc(l.company_name)}</span>${l.pinned ? '<span class="chip info">Pinned</span>' : ''}<span class="sc">${fmt(l.score)}</span></div>
-    <div class="meta-row"><span class="sub">${esc(l.country)} · ${esc(l.industry)}${l.crm_stage === 'Closed lost' ? ' · closed lost' : ''}</span><span class="tier ${tier(l.score)}" title="${tierAction[tier(l.score)]}">${tierName[tier(l.score)]}</span></div>
+    <div class="row1"><span class="rk">#${l.rank}</span><span class="nm">${esc(l.company_name)}</span>${l.pinned ? '<span class="chip info">Pinned</span>' : ''}<span class="food" title="${esc(tierName[tier(l.score)].slice(3))}: ${tierAction[tier(l.score)]}">${tierName[tier(l.score)].slice(0, 2)}</span></div>
+    <div class="meta-row"><span class="sub">${esc(l.country)} · ${esc(l.industry)}${l.crm_stage === 'Closed lost' ? ' · closed lost' : ''}</span></div>
     <div class="why">${esc(first)}${(l.why_now || '').includes('; ') ? ` <span class="faint">+${l.why_now.split('; ').length - 1} more</span>` : ''}</div>
     ${isTop ? `<div class="angle">${esc(l.suggested_angle)}</div>` : ''}
   </div>`;
 }
 function pBoard() {
   const r = state.result;
-  return `<p class="panel-intro">Each column is what one SDR works this week, best account first. Click any account to see exactly how its score was built and why it landed with this rep.</p>
+  return `<p class="panel-intro">One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.</p>
   ${tierLegend()}
   <div class="board">${r.team.map(t => {
     const rows = r.lists.filter(l => l.sdr === t.name);
@@ -485,22 +485,73 @@ function briefHtml(b) {
 function message(t) { return briefText(brief(t)); }
 function pMessages() {
   return `<div class="msg-intro card">
-      <div><b>How the brief is built</b><p>It's a briefing, not the list. Every rep gets the same shape, whether they have 15 accounts or 25: the account to start with and why, a line for each baked potato, a count and a few names for the rest (each name opens the account), and heads-ups (AEs to loop in, closed-lost history, leadership pins). No scores: they're relative and mean nothing to a rep. The full list lives in the CRM.</p></div>
-      <div class="legend"><span class="tier A">${tierName.A}</span> call first<br><span class="tier B">${tierName.B}</span> call + email<br><span class="tier C">${tierName.C}</span> email only</div>
+      <b>How the brief is built</b>
+      <p>It's a briefing, not the list. Every rep gets the same shape, whether they have 15 accounts or 25: the account to start with and why, a line for each baked potato, a count and a few names for the rest, and heads-ups on AEs, closed-lost history and leadership pins. Every name opens the account. No scores, because they mean nothing to a rep.</p>
+      ${tierLegend()}
     </div>
     <div class="msgs">${state.result.team.map(t => `<div class="card msg"><div class="mh"><span>To <b>${esc(t.name)}</b> · Monday 07:00</span><button class="btn small" data-copy="${esc(t.id)}">Copy</button></div><div class="mail">${briefHtml(brief(t))}</div></div>`).join('')}</div>`;
 }
 
 // ---------- all accounts ----------
+// All accounts: every column can be sorted (click the header) and filtered (the row under it).
+const statusGroup = s => s.status === 'Assigned' ? 'Assigned'
+  : s.status.startsWith('Not routed: no SDR') ? 'No SDR for region'
+  : s.status.includes('at capacity') ? 'Over capacity'
+  : s.status.startsWith('No signal') ? 'No signal'
+  : s.status.startsWith('Cool') ? 'Recently touched'
+  : s.status.startsWith('Excluded: CRM') ? 'Owned by AE / CS'
+  : 'Excluded by leadership';
+const ALL_COLS = [
+  { k: 'company_name', label: 'Company', get: s => s.company_name, filter: 'text' },
+  { k: 'region', label: 'Region', get: s => s.region || '–', filter: 'select' },
+  { k: 'country', label: 'Country', get: s => s.country || '–', filter: 'select' },
+  { k: 'industry', label: 'Industry', get: s => s.industry || '–', filter: 'select' },
+  { k: 'crm_stage', label: 'CRM stage', get: s => s.crm_stage || '–', filter: 'select' },
+  { k: 'score', label: 'Score', get: s => s.score, num: true, filter: 'tier' },
+  { k: 'signals_used', label: 'Signals', get: s => s.signals_used, num: true, filter: 'min' },
+  { k: 'status', label: 'Status', get: statusGroup, filter: 'select' },
+  { k: 'assigned_to', label: 'SDR', get: s => s.assigned_to || '–', filter: 'select' }
+];
 function pAll() {
-  const q = state.search.toLowerCase();
-  const items = state.result.scored.filter(s => (state.statusFilter === 'all' || s.status.startsWith(state.statusFilter)) &&
-    (!q || `${s.company_name} ${s.account_id} ${s.industry} ${s.country}`.toLowerCase().includes(q)));
-  const opts = [['all', 'All statuses'], ['Assigned', 'Assigned'], ['Not routed', 'Not routed'], ['No signal', 'No signal'], ['Cool-down', 'Cool-down'], ['Excluded', 'Excluded']];
-  return `<div class="toolbar"><input type="search" id="search" placeholder="Search company, ID, industry, country" value="${esc(state.search)}">
-    <select id="statusFilter">${opts.map(([v, l]) => `<option value="${v}" ${state.statusFilter === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <span class="muted" style="font-size:13px">${items.length} accounts</span></div>
-    <div class="card">${accTable(items)}</div>`;
+  const f = state.colFilters, q = state.search.toLowerCase();
+  const all = state.result.scored;
+  const pass = s => ALL_COLS.every(c => {
+    const v = f[c.k];
+    if (v === undefined || v === '') return true;
+    if (c.filter === 'text') return `${s.company_name} ${s.account_id}`.toLowerCase().includes(String(v).toLowerCase());
+    if (c.filter === 'tier') return v === 'unassigned' ? s.status !== 'Assigned' : s.status === 'Assigned' && tier(s.score) === v;
+    if (c.filter === 'min') return c.get(s) >= Number(v);
+    return String(c.get(s)) === v;
+  }) && (!q || `${s.company_name} ${s.account_id} ${s.industry} ${s.country}`.toLowerCase().includes(q));
+  const col = ALL_COLS.find(c => c.k === state.sort.key) || ALL_COLS[5];
+  const dir = state.sort.dir === 'asc' ? 1 : -1;
+  const items = all.filter(pass).sort((a, b) => {
+    const x = col.get(a), y = col.get(b);
+    return (col.num ? (x - y) : String(x).localeCompare(String(y))) * dir || (b.score - a.score);
+  });
+  const opts = c => [...new Set(all.map(c.get))].sort((a, b) => String(a).localeCompare(String(b)));
+  const fcell = c => {
+    const v = f[c.k] ?? '';
+    if (c.filter === 'text') return `<input type="search" data-colf="${c.k}" value="${esc(v)}" placeholder="Filter">`;
+    if (c.filter === 'tier') return `<select data-colf="${c.k}"><option value="">All</option>${['A', 'B', 'C'].map(t => `<option value="${t}" ${v === t ? 'selected' : ''}>${tierName[t]}</option>`).join('')}<option value="unassigned" ${v === 'unassigned' ? 'selected' : ''}>Not assigned</option></select>`;
+    if (c.filter === 'min') return `<select data-colf="${c.k}"><option value="">Any</option>${[1, 2, 3, 4].map(n => `<option value="${n}" ${String(v) === String(n) ? 'selected' : ''}>${n}+</option>`).join('')}</select>`;
+    return `<select data-colf="${c.k}"><option value="">All</option>${opts(c).map(o => `<option ${String(v) === String(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  };
+  const active = Object.values(f).filter(v => v !== undefined && v !== '').length;
+  return `<div class="toolbar"><span class="muted" style="font-size:13px"><b style="color:var(--text)">${items.length}</b> of ${all.length} accounts · click a column to sort, use the row below it to filter</span>
+    ${active ? `<button class="btn small" id="clearFilters">Clear ${active} filter${active > 1 ? 's' : ''}</button>` : ''}</div>
+    <div class="card"><div class="tbl-wrap all-tbl"><table><thead>
+      <tr>${ALL_COLS.map(c => `<th class="sortable ${c.num ? 'r' : ''} ${state.sort.key === c.k ? 'on' : ''}" data-sort="${c.k}">${c.label}<span class="arr">${state.sort.key === c.k ? (state.sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span></th>`).join('')}</tr>
+      <tr class="frow-h">${ALL_COLS.map(c => `<th>${fcell(c)}</th>`).join('')}</tr>
+    </thead><tbody>
+    ${items.map(s => `<tr class="click" data-acc="${esc(s.account_id)}">
+      <td><b>${esc(s.company_name)}</b><div class="faint mono">${esc(s.account_id)}</div></td>
+      <td>${esc(s.region || '–')}</td><td>${esc(s.country || '–')}</td><td>${esc(s.industry)}</td><td>${esc(s.crm_stage)}</td>
+      <td class="r num">${fmt(s.score)}${s.status === 'Assigned' ? ` <span title="${esc(tierAction[tier(s.score)])}">${tierName[tier(s.score)].slice(0, 2)}</span>` : ''}</td>
+      <td class="r num">${s.signals_used}</td>
+      <td><span class="chip ${statusKind(s.status)}">${esc(statusGroup(s))}</span></td>
+      <td>${s.assigned_to ? `${esc(s.assigned_to.split(' ')[0])} <span class="faint">#${s.rank}</span>` : '<span class="faint">–</span>'}</td></tr>`).join('') || `<tr><td colspan="${ALL_COLS.length}" class="faint" style="text-align:center;padding:24px">No accounts match these filters.</td></tr>`}
+    </tbody></table></div></div>`;
 }
 
 // ---------- account drawer ----------
@@ -691,16 +742,22 @@ function bindCommon() {
   }
   const search = document.getElementById('search');
   if (search) search.addEventListener('input', e => { state.search = e.target.value; const pos = e.target.selectionStart; document.getElementById('panel').innerHTML = panel('all'); bindCommon(); const s = document.getElementById('search'); s.focus(); s.setSelectionRange(pos, pos); });
-  const sf = document.getElementById('statusFilter');
-  if (sf) sf.addEventListener('change', e => { state.statusFilter = e.target.value; document.getElementById('panel').innerHTML = panel('all'); bindCommon(); });
+  document.querySelectorAll('[data-colf]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', e => {
+    state.colFilters[el.dataset.colf] = e.target.value;
+    const k = el.dataset.colf, pos = e.target.selectionStart;
+    document.getElementById('panel').innerHTML = panel('all'); bindCommon();
+    if (el.tagName === 'INPUT') { const n = document.querySelector(`input[data-colf="${k}"]`); n.focus(); n.setSelectionRange(pos, pos); }
+  }));
   document.querySelectorAll('details[data-fix]').forEach(d => d.addEventListener('toggle', () => { if (d.open) state.fixOpen = d.dataset.fix; }));
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, [data-acc], [data-funnel], [data-close], [data-tab], [data-goto-list]');
+  const t = e.target.closest('button, [data-acc], [data-funnel], [data-close], [data-tab], [data-goto-list], th[data-sort]');
   if (!t) return;
   if (t.id === 'runBtn' || t.id === 'runFromSettings') { closeOverlay(); state.tab = 'board'; run(); window.scrollTo(0, 0); return; }
   if (t.id === 'sampleBtn') return loadSample();
+  if (t.dataset.sort) { const k = t.dataset.sort; const num = ALL_COLS.find(c => c.k === k)?.num; state.sort = state.sort.key === k ? { key: k, dir: state.sort.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: num ? 'desc' : 'asc' }; return render(); }
+  if (t.id === 'clearFilters') { state.colFilters = {}; return render(); }
   if (t.id === 'dlBtn') return downloadExcel();
   if (t.id === 'dlSettings') return downloadSettings();
   if (t.id === 'resetBtn') { Object.assign(state, { data: { accounts: null, signals: null, sdrs: null }, names: {}, result: null, settings: clone(DEFAULT_SETTINGS), baseSettings: clone(DEFAULT_SETTINGS), settingsSource: 'built-in defaults', error: '' }); return render(); }
