@@ -1,0 +1,253 @@
+{
+  "name": "emnify weekly account prioritisation",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "emnify weekly account prioritisation",
+        "formDescription": "Upload accounts.xlsx, signals.xlsx and sdrs.xlsx (select all three at once). Optional: also upload settings.xlsx to change weights, boosts, exclusions, pins, territories or capacity. You get back one Excel file with each SDR's list.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Excel files",
+              "fieldType": "file",
+              "acceptFileTypes": ".xlsx",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "549dc3f8-8acc-4bfa-a4fb-7285ce99f410",
+      "name": "Upload the Excel files",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "77007a0a-e47a-46d6-bb89-bbcd0c923c21"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The form gives one item holding all uploaded files. Make one item per file so each can be read.\nconst out = [];\nfor (const item of $input.all()) {\n  for (const file of Object.values(item.binary || {})) {\n    out.push({ json: { file: file.fileName }, binary: { data: file } });\n  }\n}\nif (!out.length) throw new Error('No files uploaded');\nreturn out;\n"
+      },
+      "id": "0c2c52c9-01db-4fe8-a735-69b6116fb8d0",
+      "name": "One item per file",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "id": "d037bcc5-679d-4e7c-a66b-896a1539502f",
+      "name": "Read the Excel files",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// THE BRAIN: clean the data, score every account, route the best ones to each SDR, explain why.\n// Files are recognised by their columns, so file names and upload order do not matter.\nconst DEFAULT_SETTINGS = [{\"section\": \"general\", \"key\": \"as_of_date\", \"value\": \"2026-10-19\"}, {\"section\": \"general\", \"key\": \"lookback_days\", \"value\": 90}, {\"section\": \"general\", \"key\": \"half_life_days\", \"value\": 30}, {\"section\": \"general\", \"key\": \"recent_touch_days\", \"value\": 14}, {\"section\": \"general\", \"key\": \"extra_signal_same_type\", \"value\": 0.5}, {\"section\": \"general\", \"key\": \"multi_type_bonus\", \"value\": 0.15}, {\"section\": \"general\", \"key\": \"max_reasons\", \"value\": 3}, {\"section\": \"signal_weight\", \"key\": \"Current provider contract renews in ~4 months\", \"value\": 10}, {\"section\": \"signal_weight\", \"key\": \"Reported dissatisfaction with coverage on review site\", \"value\": 9}, {\"section\": \"signal_weight\", \"key\": \"Contract renewal expected Q1 2027\", \"value\": 8}, {\"section\": \"signal_weight\", \"key\": \"3 visits to pricing page\", \"value\": 8}, {\"section\": \"signal_weight\", \"key\": \"Visited eSIM product page and pricing\", \"value\": 8}, {\"section\": \"signal_weight\", \"key\": \"Visited API docs (5 pages)\", \"value\": 7}, {\"section\": \"signal_weight\", \"key\": \"Visited pricing page\", \"value\": 6}, {\"section\": \"signal_weight\", \"key\": \"Single visit to blog\", \"value\": 1}, {\"section\": \"signal_weight\", \"key\": \"Hiring IoT Connectivity Engineer\", \"value\": 7}, {\"section\": \"signal_weight\", \"key\": \"Hiring Firmware Engineer (cellular)\", \"value\": 7}, {\"section\": \"signal_weight\", \"key\": \"Hiring Device Operations Manager\", \"value\": 5}, {\"section\": \"signal_weight\", \"key\": \"Hiring Embedded Systems Lead\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"Hiring Head of Hardware\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"Downloaded IoT connectivity buyer's guide\", \"value\": 6}, {\"section\": \"signal_weight\", \"key\": \"Downloaded eSIM whitepaper\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"Registered for webinar on global roaming\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"Announced next-gen tracker with LTE-M\", \"value\": 6}, {\"section\": \"signal_weight\", \"key\": \"Launched new connected device line\", \"value\": 5}, {\"section\": \"signal_weight\", \"key\": \"Released fleet platform v3\", \"value\": 3}, {\"section\": \"signal_weight\", \"key\": \"New Head of Procurement joined\", \"value\": 5}, {\"section\": \"signal_weight\", \"key\": \"New CTO appointed\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"New VP Engineering joined\", \"value\": 4}, {\"section\": \"signal_weight\", \"key\": \"New COO from a large OEM\", \"value\": 3}, {\"section\": \"signal_type_default\", \"key\": \"Competitor contract renewal due\", \"value\": 8}, {\"section\": \"signal_type_default\", \"key\": \"Website visit (pricing or docs page)\", \"value\": 5}, {\"section\": \"signal_type_default\", \"key\": \"IoT or hardware job posting\", \"value\": 5}, {\"section\": \"signal_type_default\", \"key\": \"Content download\", \"value\": 4}, {\"section\": \"signal_type_default\", \"key\": \"Product launch\", \"value\": 4}, {\"section\": \"signal_type_default\", \"key\": \"Leadership hire\", \"value\": 4}, {\"section\": \"signal_type_default\", \"key\": \"New market entry\", \"value\": 5}, {\"section\": \"signal_type_default\", \"key\": \"Funding round\", \"value\": 5}, {\"section\": \"crm_stage\", \"key\": \"Never contacted\", \"value\": 1.0}, {\"section\": \"crm_stage\", \"key\": \"Contacted\", \"value\": 1.0}, {\"section\": \"crm_stage\", \"key\": \"Closed lost\", \"value\": 0.8}, {\"section\": \"crm_stage\", \"key\": \"Open opportunity\", \"value\": 0}, {\"section\": \"crm_stage\", \"key\": \"Customer\", \"value\": 0}, {\"section\": \"fit_devices\", \"key\": \"100000\", \"value\": 1.5}, {\"section\": \"fit_devices\", \"key\": \"25000\", \"value\": 1.3}, {\"section\": \"fit_devices\", \"key\": \"5000\", \"value\": 1.15}, {\"section\": \"fit_devices\", \"key\": \"2000\", \"value\": 1.0}, {\"section\": \"fit_devices\", \"key\": \"0\", \"value\": 0.85}, {\"section\": \"fit_provider\", \"key\": \"Telvora IoT\", \"value\": 1.15}, {\"section\": \"fit_provider\", \"key\": \"Axion Wireless\", \"value\": 1.15}, {\"section\": \"fit_provider\", \"key\": \"NordLink M2M\", \"value\": 1.15}, {\"section\": \"fit_provider\", \"key\": \"Globecell Connect\", \"value\": 1.15}, {\"section\": \"fit_provider\", \"key\": \"Multiple providers\", \"value\": 1.15}, {\"section\": \"fit_provider\", \"key\": \"Local MNO\", \"value\": 1.1}, {\"section\": \"fit_provider\", \"key\": \"emnify\", \"value\": 0}, {\"section\": \"fit_size\", \"key\": \"1-10\", \"value\": 0.85}, {\"section\": \"fit_size\", \"key\": \"11-50\", \"value\": 1.0}, {\"section\": \"fit_size\", \"key\": \"51-200\", \"value\": 1.0}, {\"section\": \"fit_size\", \"key\": \"201-500\", \"value\": 1.0}, {\"section\": \"fit_size\", \"key\": \"501-1000\", \"value\": 1.05}, {\"section\": \"fit_size\", \"key\": \"1001-5000\", \"value\": 1.1}, {\"section\": \"fit_size\", \"key\": \"5000+\", \"value\": 1.1}, {\"section\": \"boost\", \"key\": \"industry=Fleet telematics\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Asset tracking\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Cold chain logistics\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Smart metering\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=EV charging\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Micromobility\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Medical devices\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Wearables\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Industrial automation\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Smart buildings\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Security & alarms\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"industry=Agritech\", \"value\": 1.0}, {\"section\": \"boost\", \"key\": \"region=EMEA\", \"value\": 1.0}, {\"section\": \"territory\", \"key\": \"EMEA\", \"value\": \"SDR-01\"}, {\"section\": \"territory\", \"key\": \"North America\", \"value\": \"SDR-02,SDR-03\"}, {\"section\": \"territory\", \"key\": \"LATAM\", \"value\": \"SDR-04\"}, {\"section\": \"territory\", \"key\": \"APAC\", \"value\": \"\"}, {\"section\": \"capacity\", \"key\": \"SDR-01\", \"value\": \"\"}, {\"section\": \"exclude\", \"key\": \"ACC-0000\", \"value\": \"example\"}, {\"section\": \"pin\", \"key\": \"ACC-0000\", \"value\": \"example\"}, {\"section\": \"angle\", \"key\": \"Competitor contract renewal due\", \"value\": \"Renewal window: lead with coverage (540+ networks), no lock-in and migration support.\"}, {\"section\": \"angle\", \"key\": \"Website visit (pricing or docs page)\", \"value\": \"Active evaluation: offer a pricing walkthrough or free SIM test kit.\"}, {\"section\": \"angle\", \"key\": \"IoT or hardware job posting\", \"value\": \"Building connectivity in-house: pitch the API/platform as a shortcut for the new hire.\"}, {\"section\": \"angle\", \"key\": \"Content download\", \"value\": \"Research stage: follow up on the asset with a relevant customer story.\"}, {\"section\": \"angle\", \"key\": \"Product launch\", \"value\": \"New devices shipping: talk global eSIM provisioning for the launch.\"}, {\"section\": \"angle\", \"key\": \"Leadership hire\", \"value\": \"New decision maker: intro + 90-day connectivity review offer.\"}, {\"section\": \"angle\", \"key\": \"New market entry\", \"value\": \"Expanding countries: one SIM, local coverage in the new market.\"}, {\"section\": \"angle\", \"key\": \"Funding round\", \"value\": \"Fresh budget and scale plans: position for growth and cost control.\"}];\n\n// emnify weekly account prioritisation: clean -> score -> route -> explain.\n// Pure function, no n8n dependencies, so the same code runs in the n8n Code node and in local tests.\n// Inputs are arrays of row objects exactly as read from the Google Sheet tabs.\n\nfunction prioritise(accounts, signals, sdrs, settingsRows) {\n  const issues = [];\n  const issue = (area, item, problem, action) => issues.push({ area, item, problem, action });\n  const str = v => (v === null || v === undefined ? '' : String(v).trim());\n  const num = v => (str(v) === '' || isNaN(Number(v)) ? null : Number(v));\n\n  const daysBetween = (a, b) => Math.round((a - b) / 86400000);\n  // dates may arrive as text (2026-10-12) or as Excel serial numbers (46307)\n  const toDate = v => (typeof v === 'number' || /^\\d{5}(\\.\\d+)?$/.test(str(v)) ? new Date((Number(v) - 25569) * 86400000) : new Date(str(v)));\n\n  // ---------- settings ----------\n  const S = {};\n  for (const r of settingsRows) {\n    const sec = str(r.section), key = str(r.key);\n    if (!sec || !key) continue;\n    (S[sec] = S[sec] || {})[key] = r.value;\n  }\n  const g = S.general || {};\n  const asOf = str(g.as_of_date) ? toDate(g.as_of_date) : new Date(new Date().toISOString().slice(0, 10));\n  const lookback = num(g.lookback_days) ?? 90;\n  const halfLife = num(g.half_life_days) ?? 30;\n  const touchCooldown = num(g.recent_touch_days) ?? 14;\n  const sameTypeShare = num(g.extra_signal_same_type) ?? 0.5;\n  const multiTypeBonus = num(g.multi_type_bonus) ?? 0.15;\n  const maxReasons = num(g.max_reasons) ?? 3;\n  const tbl = sec => S[sec] || {};\n\n  // ---------- clean accounts ----------\n  const COUNTRY = { 'usa': 'United States', 'united states': 'United States', 'us': 'United States',\n    'uae': 'United Arab Emirates', 'united arab emirates': 'United Arab Emirates', 'uk': 'United Kingdom', 'united kingdom': 'United Kingdom' };\n  const REGION_OF = { 'United States': 'North America', 'Canada': 'North America',\n    'United Arab Emirates': 'EMEA', 'United Kingdom': 'EMEA' };\n  const titleCase = s => s.toLowerCase().replace(/\\b\\w/g, c => c.toUpperCase());\n\n  const acc = {};\n  for (const a of accounts) {\n    const id = str(a.account_id);\n    if (!id) continue;\n    const raw = str(a.country);\n    const country = COUNTRY[raw.toLowerCase()] || titleCase(raw);\n    if (country !== raw) issue('accounts', id, `Country \"${raw}\"`, `Normalised to \"${country}\"`);\n    let region = str(a.region);\n    if (region === 'NA') region = 'North America';\n    if (REGION_OF[country] && REGION_OF[country] !== region) {\n      issue('accounts', id, `Region \"${str(a.region) || 'blank'}\" does not match ${country}`, `Set to ${REGION_OF[country]}`);\n      region = REGION_OF[country];\n    }\n    if (!region) issue('accounts', id, 'Region missing', 'Left unrouted');\n    acc[id] = { ...a, account_id: id, country, region, signals: [] };\n  }\n\n  // ---------- clean signals ----------\n  const seen = new Set();\n  let used = 0;\n  for (const s of signals) {\n    const id = str(s.account_id), date = str(s.signal_date);\n    const k = [id, date, str(s.signal_type), str(s.signal_detail)].join('|');\n    if (seen.has(k)) { issue('signals', id, `Duplicate: ${s.signal_detail} on ${date}`, 'Counted once'); continue; }\n    seen.add(k);\n    if (!acc[id]) { issue('signals', id, 'Account not in accounts list', 'Signal dropped'); continue; }\n    if (!date) { issue('signals', id, `No date: ${s.signal_detail}`, 'Signal dropped (age unknown)'); continue; }\n    const age = daysBetween(asOf, toDate(date));\n    if (age > lookback) { issue('signals', id, `Older than ${lookback} days (${date})`, 'Signal dropped'); continue; }\n    if (age < 0) { issue('signals', id, `Dated after as_of_date (${date})`, 'Signal dropped'); continue; }\n    const w = num(tbl('signal_weight')[str(s.signal_detail)]) ?? num(tbl('signal_type_default')[str(s.signal_type)]) ?? 3;\n    acc[id].signals.push({ type: str(s.signal_type), detail: str(s.signal_detail), source: str(s.source), date, age,\n      points: w * Math.pow(0.5, age / halfLife) });\n    used++;\n  }\n\n  // ---------- score ----------\n  const devicesMult = d => {\n    if (d === null) return 1;\n    const steps = Object.entries(tbl('fit_devices')).map(([k, v]) => [Number(k), Number(v)]).sort((x, y) => y[0] - x[0]);\n    for (const [min, m] of steps) if (d >= min) return m;\n    return 1;\n  };\n  const lookup = (sec, key) => num(tbl(sec)[key]) ?? 1;\n  const boosts = Object.entries(tbl('boost')).map(([k, v]) => { const [f, ...rest] = k.split('='); return [f.trim(), rest.join('=').trim(), Number(v)]; });\n  const excluded = tbl('exclude'), pinned = tbl('pin');\n\n  const scored = [];\n  for (const a of Object.values(acc)) {\n    let status = '';\n    const stageMult = num(tbl('crm_stage')[str(a.crm_stage)]) ?? 1;\n    const touchAge = str(a.last_touch_date) ? daysBetween(asOf, toDate(a.last_touch_date)) : null;\n    const isPinned = a.account_id in pinned;\n\n    // intent: strongest signal per type counts fully, repeats of a type count partially\n    const byType = {};\n    for (const s of a.signals) (byType[s.type] = byType[s.type] || []).push(s);\n    let intent = 0;\n    for (const list of Object.values(byType)) {\n      list.sort((x, y) => y.points - x.points);\n      list.forEach((s, i) => { intent += i === 0 ? s.points : s.points * sameTypeShare; });\n    }\n    const types = Object.keys(byType).length;\n    intent *= 1 + multiTypeBonus * Math.max(0, types - 1);\n\n    const fit = devicesMult(num(a.est_connected_devices)) * lookup('fit_provider', str(a.current_provider)) * lookup('fit_size', str(a.employee_count));\n    let boost = 1;\n    const boostNotes = [];\n    for (const [f, v, m] of boosts) if (str(a[f]) === v && m !== 1) { boost *= m; boostNotes.push(`${f} ${v} x${m}`); }\n\n    const score = intent * fit * stageMult * boost;\n\n    if (a.account_id in excluded) status = `Excluded by leadership: ${str(excluded[a.account_id])}`;\n    else if (stageMult === 0) status = `Excluded: CRM stage ${a.crm_stage}`;\n    else if (boost === 0) status = `Excluded by segment boost (${boostNotes.join(', ')})`;\n    else if (touchAge !== null && touchAge <= touchCooldown && !isPinned) status = `Cool-down: touched ${touchAge} days ago`;\n    else if (!a.signals.length && !isPinned) status = `No signal in last ${lookback} days`;\n\n    const top = [...a.signals].sort((x, y) => y.points - x.points);\n    const ago = d => (d === 0 ? 'today' : d === 1 ? '1 day ago' : `${d} days ago`);\n    const reasons = [];\n    for (const s of top) {\n      if (reasons.length >= maxReasons) break;\n      if (!reasons.some(r => r.startsWith(s.detail + ' ('))) reasons.push(`${s.detail} (${ago(s.age)})`);\n    }\n    const fitBits = [];\n    if (num(a.est_connected_devices) !== null) fitBits.push(`~${Number(a.est_connected_devices).toLocaleString('en-US')} devices`);\n    if (str(a.current_provider)) fitBits.push(`on ${a.current_provider}`);\n    if (str(a.employee_count)) fitBits.push(`${a.employee_count} staff`);\n    if (str(a.crm_stage) === 'Closed lost') fitBits.push(`closed lost before (last touch ${a.last_touch_date})`);\n    if (boostNotes.length) fitBits.push(`boost: ${boostNotes.join(', ')}`);\n\n    scored.push({\n      account_id: a.account_id, company_name: str(a.company_name), country: a.country, region: a.region,\n      industry: str(a.industry), crm_stage: str(a.crm_stage), ae_owner: str(a.owner),\n      score: Math.round(score * 10) / 10, intent: Math.round(intent * 10) / 10, fit: Math.round(fit * 100) / 100,\n      signals_used: a.signals.length, signal_types: types,\n      why: reasons.join('; '), fit_notes: fitBits.join(', '),\n      suggested_angle: top.length ? str(tbl('angle')[top[0].type]) : '',\n      pinned: isPinned, status, assigned_to: '', rank: ''\n    });\n  }\n\n  // ---------- route ----------\n  const reps = {};\n  for (const r of sdrs) {\n    const id = str(r.sdr_id);\n    const cap = num(tbl('capacity')[id]) ?? num(r.weekly_capacity) ?? 0;\n    reps[id] = { id, name: str(r.name), tenure: num(r.tenure_months) ?? 0, cap, left: cap, list: [] };\n  }\n  const poolOf = {};\n  for (const [region, ids] of Object.entries(tbl('territory'))) poolOf[region] = str(ids).split(',').map(x => x.trim()).filter(x => reps[x]);\n\n  const ranked = scored.filter(s => !s.status)\n    .sort((x, y) => (y.pinned - x.pinned) || (y.score - x.score));\n  for (const s of ranked) {\n    const pool = (poolOf[s.region] || []).map(id => reps[id]);\n    if (!pool.length) { s.status = `Not routed: no SDR covers ${s.region || 'unknown region'}`; continue; }\n    // the rep with the most free capacity (as a share) takes the next best account; ties go to the more senior rep\n    const open = pool.filter(r => r.left > 0)\n      .sort((x, y) => (y.left / y.cap - x.left / x.cap) || (y.tenure - x.tenure));\n    if (!open.length) { s.status = 'Not routed: territory at capacity this week'; continue; }\n    const rep = open[0];\n    rep.left--; rep.list.push(s);\n    s.assigned_to = rep.name; s.rank = rep.list.length; s.status = 'Assigned';\n  }\n\n  const weekOf = asOf.toISOString().slice(0, 10);\n  const lists = [];\n  for (const rep of Object.values(reps)) {\n    if (rep.left > 0) issue('routing', rep.name, `Only ${rep.list.length} of ${rep.cap} slots filled`, 'Not enough qualifying accounts in territory');\n    for (const s of rep.list) lists.push({\n      week_of: weekOf, sdr: rep.name, rank: s.rank, account_id: s.account_id, company_name: s.company_name,\n      country: s.country, industry: s.industry, crm_stage: s.crm_stage, score: s.score,\n      why_now: s.why, fit: s.fit_notes, suggested_angle: s.suggested_angle,\n      loop_in_ae: s.ae_owner, pinned: s.pinned ? 'yes' : ''\n    });\n  }\n  scored.sort((x, y) => y.score - x.score);\n  const summary = {\n    week_of: weekOf, accounts: Object.keys(acc).length, signals_in: signals.length, signals_used: used,\n    assigned: lists.length, per_sdr: Object.values(reps).map(r => `${r.name}: ${r.list.length}/${r.cap}`).join(', ')\n  };\n  return { lists, scored, issues, summary };\n}\n\n\nconst rows = $input.all().map(i => i.json);\nconst accounts = rows.filter(r => 'company_name' in r);\nconst signals = rows.filter(r => 'signal_type' in r);\nconst sdrs = rows.filter(r => 'sdr_id' in r);\nconst uploadedSettings = rows.filter(r => 'section' in r);\nconst missing = [['accounts', accounts], ['signals', signals], ['sdrs', sdrs]].filter(([, x]) => !x.length).map(([n]) => n);\nif (missing.length) throw new Error('Missing file(s): ' + missing.join(', '));\nconst result = prioritise(accounts, signals, sdrs, uploadedSettings.length ? uploadedSettings : DEFAULT_SETTINGS);\nresult.summary.settings_used = uploadedSettings.length ? 'uploaded settings.xlsx' : 'built-in defaults';\nreturn [{ json: result }];\n"
+      },
+      "id": "c02ecfa7-edee-4749-aaca-c1d1f4ed260c",
+      "name": "Score and route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One row per account on an SDR's list. Rank 1 = start here.\nreturn $input.first().json.lists.map(r => ({ json: r }));"
+      },
+      "id": "da78ad80-bf48-4613-9cf3-c343742e2d72",
+      "name": "SDR lists",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "={{ 'sdr_lists_week_of_' + $('Score and route').first().json.summary.week_of + '.xlsx' }}",
+          "headerRow": true,
+          "sheetName": "sdr_lists"
+        }
+      },
+      "id": "551e4e4c-6d3b-414c-8562-cfc0250dd3e6",
+      "name": "Make Excel file",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1712,
+        0
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "returnBinary",
+        "completionTitle": "Your SDR lists are ready",
+        "completionMessage": "The download has started.",
+        "options": {}
+      },
+      "id": "d086e6c6-c552-4b50-ba2b-9f8bb18de6c6",
+      "name": "Download the lists",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "webhookId": "c0d0c851-0a81-4fc8-8525-64c77a6e0d44"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Why an upload form\nThe brief says the work must make sense **without me in the room**. A form is the lowest-friction way for a reviewer to run it: no Google login, no OAuth, no pasted URLs. You drop in the three files exactly as emnify sent them and get the result back.\n\n**Trade-off:** in production this would be a Monday 07:00 schedule pulling straight from the CRM. The form is the prototype stand-in for that trigger, not the end state.\n\n**Optional 4th file:** settings.xlsx. This is how leadership changes priorities without anyone editing the workflow.",
+        "height": 780,
+        "width": 400
+      },
+      "id": "438468b0-6cfa-4125-a90f-e84e9c921ec6",
+      "name": "Why an upload form",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Why files are recognised by their columns\nEach file is split into its own item and read into rows. The workflow then identifies accounts, signals and sdrs by the columns they contain, not by file name or upload order.\n\n**Why:** real data exports get renamed (\"accounts (2).xlsx\", \"Q4_export.xlsx\") and people upload files in any order. Keying on content instead of names removes the most common way this kind of workflow breaks.\n\nIf a file is missing, the run stops on purpose rather than producing a partial list that looks complete.",
+        "height": 780,
+        "width": 520
+      },
+      "id": "7c3543fd-42a7-4ef1-86c2-7c148e741d5c",
+      "name": "Why files are recognised by columns",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score and route: why it works this way\n**Clean first, because the data is messy by design.** Country spellings are unified, \"NA\" might be read as missing, not North America, duplicates count once, and signals that are undated, older than 90 days or point to unknown accounts are dropped. Every fix is logged, so nothing is changed silently.\n\n**Score = intent × fit × CRM stage × leadership boost.** Multiplying means an account needs **both** buying activity and fit: a huge silent account can't rank on size alone.\n- *Intent:* signals are weighted by their detail text, because the type labels mislead (a blog visit is filed as a \"pricing or docs\" visit). Weight halves every 30 days, because a weekly list is about **why now**. Repeats of one type count half, and several types add a bonus, because a buying committee moving is a stronger sign than one busy person.\n- *Fit:* driven by connected devices, since emnify earns per device. Unknown values are neutral, so missing data never punishes an account.\n- *Ignored on purpose:* funding_stage, because it contradicts the dated funding signals.\n\n**Route by territory, then capacity.** Each rep gets exactly their weekly capacity (25 / 20 / 15 / 20). The two US reps share in proportion, so the newer rep isn't left with leftovers, and ties go to the more experienced rep. APAC has no SDR, so it's flagged for leadership instead of being forced onto the wrong time zone.\n\nClick this node after a run to see every score and the data issues log.",
+        "height": 780,
+        "width": 600,
+        "color": 7
+      },
+      "id": "0484a965-5378-481a-92df-e92eeda5fbb7",
+      "name": "Why the brain is built this way",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Why the output looks like this\nAn SDR won't act on a bare number, so every row carries:\n- **rank:** 1 = start here\n- **why now:** the top 3 signals in plain words, with their age\n- **fit:** devices, current provider, size\n- **suggested angle:** an opening line matched to the strongest signal\n- **loop in AE:** so two people never contact the same account\n\n**This Excel file stands in for the CRM.** In production the same rows become a ranked list view or tasks in Salesforce or HubSpot, plus a 07:00 Slack or email message per rep. The logic stays the same; only the delivery changes.",
+        "height": 780,
+        "width": 600
+      },
+      "id": "90cb21f4-15fb-403f-990a-b06546c98a86",
+      "name": "Why the output looks like this",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        -816
+      ]
+    }
+  ],
+  "connections": {
+    "Upload the Excel files": {
+      "main": [
+        [
+          {
+            "node": "One item per file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per file": {
+      "main": [
+        [
+          {
+            "node": "Read the Excel files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Excel files": {
+      "main": [
+        [
+          {
+            "node": "Score and route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and route": {
+      "main": [
+        [
+          {
+            "node": "SDR lists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SDR lists": {
+      "main": [
+        [
+          {
+            "node": "Make Excel file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make Excel file": {
+      "main": [
+        [
+          {
+            "node": "Download the lists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

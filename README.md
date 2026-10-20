@@ -18,6 +18,7 @@ A browser-only prototype that turns 500 accounts and their buying signals into e
 - **Account detail:** click any account for its full score breakdown, and pin or exclude it.
 
 ## Files
+- `n8n/`: the same logic as an n8n workflow (import file, diagram and how to run it).
 - `logic.js`: cleaning, scoring and routing. Same logic as the "Score and route" node in the n8n workflow (checked to produce identical lists, scores and data issues on the case data).
 - `defaults.js`: the default leadership settings.
 - `app.js`, `index.html`, `styles.css`: the interface.

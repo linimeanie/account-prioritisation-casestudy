@@ -226,7 +226,7 @@ function renderIntro() {
       <div class="card how-card"><div class="n">2</div><b>Score</b><p>Intent (how strong and fresh the signals are) × fit (devices in the field) × CRM stage (customers and open deals stay with AEs) × leadership boost.</p></div>
       <div class="card how-card"><div class="n">3</div><b>Route</b><p>Best score first, within each SDR's territory, until their weekly capacity is full. Accounts touched in the last two weeks rest, so nobody is over-contacted.</p></div>
     </div>
-    <footer>Prototype for the emnify GTM Engineer case study. All companies and people are fictional. The same logic runs as an n8n workflow; this page is a transparent front end over it.</footer>
+    <footer>Prototype for the emnify GTM Engineer case study. All companies and people are fictional. The same logic runs as an <a href="https://github.com/linimeanie/emnify-casestudy/tree/main/n8n" target="_blank" rel="noopener">n8n workflow</a>; this page is a transparent front end over it.</footer>
   </div>`;
 }
 
