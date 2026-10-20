@@ -156,7 +156,12 @@ function sdrName(id) {
   return r ? String(r.name).split(' ')[0] : String(id).trim();
 }
 function territoryText() {
-  return S.entries('territory').map(([reg, ids]) => `${reg} → ${ids ? String(ids).split(',').map(sdrName).join(' + ') : 'nobody'}`);
+  // before the SDR file is loaded only IDs are known, so show a count instead of cryptic IDs
+  return S.entries('territory').map(([reg, ids]) => {
+    const list = String(ids || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (!list.length) return `${reg} → nobody`;
+    return `${reg} → ${state.data.sdrs ? list.map(sdrName).join(' + ') : `${list.length} SDR${list.length > 1 ? 's' : ''}`}`;
+  });
 }
 
 function renderIntro() {
@@ -171,7 +176,10 @@ function renderIntro() {
   <div class="wrap">
     <section class="hero">
       <h1>Each SDR's best accounts for the week,<br><em>with the reason behind every pick</em></h1>
-      <p class="lead">Drop in the three case files. The prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. Leadership can change the rules before or after the run.</p>
+      <div class="note-from">
+        <div class="avatar" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#efe9fd"/><path d="M14 58c1-12 8-19 18-19s17 7 18 19" fill="#6a3be5"/><path d="M17 33c-2-14 5-23 15-23s17 9 15 23c-1 7-3 12-3 12H20s-2-5-3-12z" fill="#0e022d"/><circle cx="32" cy="30" r="10.5" fill="#f6d2bf"/><path d="M21 28c2-8 7-11 12-11 5 0 9 3 11 9-6 0-12-2-15-6-2 4-5 7-8 8z" fill="#0e022d"/><path d="M27 41h10v5c-2 2-8 2-10 0z" fill="#f6d2bf"/></svg></div>
+        <div class="bubble"><div class="who"><b>Lina</b><span>Case study author</span></div><p>Drop in the three case files and the prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. The signal weights and scoring rules live in Leadership settings on the right: change any of them, before or after the run, and the lists re-rank instantly.</p></div>
+      </div>
     </section>
     <div class="intro-grid">
       <div class="card pad span-2 stack">
@@ -822,6 +830,20 @@ overlay.addEventListener('change', e => {
   afterSettingsChange();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOverlay(); });
+
+// ---------- day / night switch (remembered per browser) ----------
+const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+function paintThemeBtn() { const b = document.getElementById('themeBtn'); if (b) b.innerHTML = isDark() ? `${SUN} Day` : `${MOON} Night`; }
+document.getElementById('themeBtn')?.addEventListener('click', () => {
+  const next = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('emnify-theme', next); } catch {}
+  paintThemeBtn();
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', paintThemeBtn);
+paintThemeBtn();
 
 // offer "Use the case data" only when the files are bundled in /data
 state.noSample = true;

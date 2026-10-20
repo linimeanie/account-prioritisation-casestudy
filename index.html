@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <script>try { const t = localStorage.getItem("emnify-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weekly Account Prioritisation</title>
@@ -19,6 +20,7 @@
         <div class="logo">↗</div>
         <div>Weekly account prioritisation<small>emnify GTM Engineer case study · Galina Shakhanova</small></div>
       </div>
+      <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch between day and night mode"></button>
     </div>
   </header>
   <main id="app"></main>
