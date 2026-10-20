@@ -11,6 +11,7 @@ A browser-only prototype that turns 500 accounts and their buying signals into e
 
 ## What you see
 - **SDR lists:** one column per rep, best account first, with why now, fit and a suggested opening.
+- **Week over week:** the same files replayed as three consecutive Mondays (5, 12 and 19 Oct). Every account is either new this week or carried over. Carried-over accounts stay with their rep and move back to the top when a new signal heats them up; new signals move accounts up while older ones fade; and every rep is filled to capacity, first with same-language accounts from another territory, then with best-fit prospects.
 - **How 500 became 80:** where every account went and why.
 - **How the score works:** intent × fit × CRM stage × leadership boost, with the weights in use.
 - **Data fixes:** every correction made to the messy input data.

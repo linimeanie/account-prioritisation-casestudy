@@ -27,13 +27,15 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmt = (n, d = 1) => (n === null || n === undefined || isNaN(n) ? '–' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }));
 const fmt0 = n => Number(n).toLocaleString('en-US');
 const ready = () => state.data.accounts && state.data.signals && state.data.sdrs;
-const tier = s => (s >= 20 ? 'A' : s >= 8 ? 'B' : 'C');
+const tierOfScore = s => (s >= 20 ? 'A' : s >= 8 ? 'B' : 'C');
+// prospects (filled slots with no signal yet) get their own tier
+const tier = x => (typeof x === 'object' ? (x.prospect === true || x.prospect === 'yes' ? 'P' : tierOfScore(x.score)) : tierOfScore(x));
 // Tiers use food temperature instead of sales jargon ("warm" already means an existing relationship in sales).
 // Each one stands for an action: baked potato = call first, cream soup = call + email, sushi = email only.
-const tierName = { A: '🥔 Baked potato', B: '🍲 Cream soup', C: '🍣 Sushi' };
-const tierAction = { A: 'call first', B: 'call, then follow up by email', C: 'one email is enough' };
-const tierLegend = () => `<div class="tier-legend"><span><span class="tier A">${tierName.A}</span> hot, score 20+: ${tierAction.A}</span><span><span class="tier B">${tierName.B}</span> warm, 8 to 20: ${tierAction.B}</span><span><span class="tier C">${tierName.C}</span> served cold, under 8: ${tierAction.C}</span></div>`;
-const statusKind = st => st === 'Assigned' ? 'good' : st.startsWith('Not routed') ? 'warn' : st.startsWith('Excluded') ? 'bad' : '';
+const tierName = { A: '🥔 Baked potato', B: '🍲 Cream soup', C: '🍣 Sushi', P: '🍞 Bread & butter' };
+const tierAction = { A: 'call first', B: 'call, then follow up by email', C: 'one email is enough', P: 'research first, then a cold first touch' };
+const tierLegend = () => `<div class="tier-legend"><span><span class="tier A">${tierName.A}</span> hot, score 20+: ${tierAction.A}</span><span><span class="tier B">${tierName.B}</span> warm, 8 to 20: ${tierAction.B}</span><span><span class="tier C">${tierName.C}</span> served cold, under 8: ${tierAction.C}</span><span><span class="tier P">${tierName.P}</span> strong fit, no signal yet: research, then a cold first touch</span></div>`;
+const statusKind = st => st === 'Assigned' ? 'good' : st.startsWith('Back on fire') || st.startsWith('In sequence') ? 'info' : st.startsWith('Not routed') ? 'warn' : st.startsWith('Excluded') ? 'bad' : '';
 
 const S = {
   rows: () => state.settings,
@@ -102,6 +104,48 @@ async function loadSample() {
   } catch { state.error = 'The case data is not bundled with this site. Please drop the three files instead.'; render(); }
 }
 
+// ---------- weeks ----------
+// The same files are replayed as consecutive Mondays: each week only sees the signals dated up to its
+// Monday. Accounts assigned in one week are remembered, so the next week can apply the week-to-week rules.
+const isoDay = v => {
+  if (v === null || v === undefined || v === '') return '';
+  if (typeof v === 'number' || /^\d{5}(\.\d+)?$/.test(String(v))) return new Date((Number(v) - 25569) * 86400000).toISOString().slice(0, 10);
+  const d = new Date(String(v).trim()); return isNaN(d) ? String(v) : d.toISOString().slice(0, 10);
+};
+const addDays = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+const WEEKS = 3;
+function weekDates() {
+  const last = isoDay(S.get('general', 'as_of_date')) || new Date().toISOString().slice(0, 10);
+  return Array.from({ length: WEEKS }, (_, i) => addDays(last, -7 * (WEEKS - 1 - i)));
+}
+function runWeeks() {
+  const dates = weekDates(), worked = {};
+  state.weeks = dates.map((d, i) => {
+    const signals = state.data.signals.filter(x => !x.signal_date || isoDay(x.signal_date) <= d);
+    const accounts = state.data.accounts.map(a => isoDay(a.last_touch_date) > d ? { ...a, last_touch_date: '' } : a);
+    const settings = state.settings.map(r => r.section === 'general' && r.key === 'as_of_date' ? { ...r, value: d } : r);
+    const r = prioritise(accounts, signals, state.data.sdrs, settings, { worked: { ...worked } });
+    r.date = d; r.index = i;
+    const from = i ? dates[i - 1] : addDays(d, -7);
+    r.newSignals = state.data.signals.filter(x => { const sd = isoDay(x.signal_date); return sd > from && sd <= d; });
+    r.knownSignals = signals.length;
+    if (!i) {
+      // the Monday before week 1, so week 1 can also show what moved accounts up or down
+      const b = addDays(d, -7);
+      r.baseline = prioritise(state.data.accounts.map(a => isoDay(a.last_touch_date) > b ? { ...a, last_touch_date: '' } : a),
+        state.data.signals.filter(x => !x.signal_date || isoDay(x.signal_date) <= b), state.data.sdrs,
+        state.settings.map(x => x.section === 'general' && x.key === 'as_of_date' ? { ...x, value: b } : x));
+      r.baseline.date = b;
+    }
+    for (const l of r.lists) worked[l.account_id] = { date: d, sdr: l.sdr };
+    for (const x of r.scored) if (x.status.startsWith('Back on fire')) worked[x.account_id] = { ...worked[x.account_id], date: d };
+    return r;
+  });
+  state.week = Math.min(state.week ?? 0, WEEKS - 1);
+  state.result = state.weeks[state.week];
+}
+function setWeek(i) { state.week = i; state.result = state.weeks[i]; state.newlyIn = new Set(); render(); }
+
 // ---------- run ----------
 let runTimer;
 function scheduleRun() { clearTimeout(runTimer); runTimer = setTimeout(run, 220); }
@@ -109,7 +153,7 @@ function run() {
   if (!ready()) return render();
   const before = state.result ? new Set(state.result.lists.map(l => l.account_id)) : null;
   const posBefore = state.result ? new Map(state.result.lists.map(l => [l.account_id, `${l.sdr}#${l.rank}`])) : null;
-  state.result = prioritise(state.data.accounts, state.data.signals, state.data.sdrs, state.settings);
+  runWeeks();
   const after = new Set(state.result.lists.map(l => l.account_id));
   if (before) {
     state.newlyIn = new Set([...after].filter(x => !before.has(x)));
@@ -130,7 +174,7 @@ let savedDataRef = null;
 function saveState() {
   try {
     if (savedDataRef !== state.data) { sessionStorage.setItem(STORE_DATA, JSON.stringify({ data: state.data, names: state.names })); savedDataRef = state.data; }
-    sessionStorage.setItem(STORE_UI, JSON.stringify({ built: !!state.result, tab: state.tab, settings: state.settings, baseSettings: state.baseSettings,
+    sessionStorage.setItem(STORE_UI, JSON.stringify({ built: !!state.result, tab: state.tab, week: state.week, settings: state.settings, baseSettings: state.baseSettings,
       settingsSource: state.settingsSource, colFilters: state.colFilters, sort: state.sort, expanded: state.expanded }));
   } catch { /* storage full or blocked: the page still works, it just won't survive a reload */ }
 }
@@ -138,7 +182,7 @@ function restoreState() {
   try {
     const d = JSON.parse(sessionStorage.getItem(STORE_DATA) || 'null'), u = JSON.parse(sessionStorage.getItem(STORE_UI) || 'null');
     if (d && d.data) { state.data = d.data; state.names = d.names || {}; savedDataRef = state.data; }
-    if (u) Object.assign(state, { tab: u.tab || 'board', settings: u.settings || state.settings, baseSettings: u.baseSettings || state.baseSettings,
+    if (u) Object.assign(state, { week: u.week || 0, tab: u.tab || 'board', settings: u.settings || state.settings, baseSettings: u.baseSettings || state.baseSettings,
       settingsSource: u.settingsSource || state.settingsSource, colFilters: u.colFilters || {}, sort: u.sort || state.sort, expanded: u.expanded || {} });
     return !!(u && u.built && ready());
   } catch { return false; }
@@ -210,7 +254,7 @@ function renderIntro() {
         <h2>Leadership settings</h2>
         <p class="card-lead">Every rule is a setting, not code. Change it now or after the run and watch the lists update.</p>
         <dl class="sum">
-          <dt>Run date</dt><dd>${esc(S.get('general', 'as_of_date'))}</dd>
+          <dt>Weeks</dt><dd>${weekDates().map(dayShort).join(' · ')}</dd>
           <dt>Signal window</dt><dd>${esc(S.get('general', 'lookback_days'))} days, halving every ${esc(S.get('general', 'half_life_days'))}</dd>
           <dt>Signal weights</dt><dd>${S.entries('signal_weight').length} signals, ${S.entries('signal_type_default').length} type defaults</dd>
           <dt>Segment boosts</dt><dd>${boosts ? `${boosts} active` : 'None active'}</dd>
@@ -233,11 +277,11 @@ function renderIntro() {
 function kpis(r) {
   const fixes = r.issues.filter(i => i.area !== 'routing').length;
   const apac = r.scored.filter(s => s.status.startsWith('Not routed: no SDR')).length;
-  const reason = r.scored.filter(s => !s.status.startsWith('Excluded') && !s.status.startsWith('No signal') && !s.status.startsWith('Cool')).length;
+  const reason = r.scored.filter(s => s.signals_used > 0 && s.breakdown.stageMult > 0 && !s.status.startsWith('Excluded')).length;
   const k = (v, l, s) => `<div class="card kpi"><div class="v num">${v}</div><div class="l">${l}</div><div class="s">${s}</div></div>`;
   return `<div class="kpis">
     ${k(r.lists.length, 'accounts assigned', esc(r.team.map(t => `${t.name.split(' ')[0]} ${t.filled}`).join(' · ')))}
-    ${k(fmt0(r.summary.accounts), 'accounts scored', `${reason} with a reason to call`)}
+    ${k(fmt0(r.summary.accounts), 'accounts scored', `${bridgeRows(r).live} with a live signal SDRs can work`)}
     ${k(`${r.summary.signals_used}<span class="of"> / ${r.summary.signals_in}</span>`, 'signals used', 'rest: duplicate, undated, stale')}
     ${k(fixes, 'data fixes logged', 'each one listed in Data fixes')}
     ${k(apac, 'left for leadership', apac ? 'signals, but no SDR in region' : 'every region is covered')}
@@ -248,6 +292,7 @@ function renderResults() {
   const r = state.result;
   const tabs = [
     ['board', 'SDR lists', r.lists.length],
+    ['weeks', 'Week over week'],
     ['funnel', 'How 500 became 80'],
     ['explain', 'How the score works'],
     ['fixes', 'Data fixes', r.issues.filter(i => i.area !== 'routing').length],
@@ -257,7 +302,7 @@ function renderResults() {
   const changes = S.changes();
   return `
   <div class="bar"><div class="wrap">
-    <span class="title">Week of ${esc(r.summary.week_of)}</span>
+    <span class="weeksw">${state.weeks.map((w, i) => `<button class="${i === state.week ? 'on' : ''}" data-week="${i}">${weekLabel(i)} · ${dayShort(w.date)}</button>`).join('')}</span>
     <span class="chip">${esc(state.settingsSource)}${changes ? ` + ${changes} change${changes > 1 ? 's' : ''}` : ''}</span>
     <span class="spacer"></span>
     <button class="btn small" data-open-settings>⚙ Leadership settings</button>
@@ -268,12 +313,12 @@ function renderResults() {
     ${kpis(r)}
     <nav class="tabs">${tabs.map(([k, l, c]) => `<button class="tab ${state.tab === k ? 'active' : ''}" data-tab="${k}">${l}${c !== undefined ? `<span class="count">${c}</span>` : ''}</button>`).join('')}</nav>
     <section id="panel">${panel(state.tab)}</section>
-    <footer>All companies and people are fictional. Scores are relative within this week's run. The food tiers (baked potato ≥ 20, cream soup ≥ 8, sushi below) are a reading aid only and don't change the ranking.</footer>
+    <footer>All companies and people are fictional. Scores are relative within this week's run. The food tiers (baked potato ≥ 20, cream soup ≥ 8, sushi below, bread & butter for best-fit prospects) are a reading aid only and don't change the ranking.</footer>
   </div>`;
 }
 
 function panel(tab) {
-  return { board: pBoard, funnel: pFunnel, explain: pExplain, fixes: pFixes, messages: pMessages, all: pAll }[tab]();
+  return { board: pBoard, weeks: pWeeks, funnel: pFunnel, explain: pExplain, fixes: pFixes, messages: pMessages, all: pAll }[tab]();
 }
 
 // ---------- SDR board ----------
@@ -282,7 +327,7 @@ function accCard(l, s) {
   const first = (l.why_now || '').split('; ')[0];
   return `<div class="acc ${isTop ? 'top' : ''} ${state.newlyIn.has(l.account_id) ? 'new' : ''}" data-acc="${esc(l.account_id)}">
     ${isTop ? '<div class="badge">Start here</div>' : ''}
-    <div class="row1"><span class="rk">#${l.rank}</span><span class="nm">${esc(l.company_name)}</span>${l.pinned ? '<span class="chip info">Pinned</span>' : ''}<span class="food" title="${esc(tierName[tier(l.score)].slice(3))}: ${tierAction[tier(l.score)]}">${tierName[tier(l.score)].slice(0, 2)}</span></div>
+    <div class="row1"><span class="rk">#${l.rank}</span><span class="nm">${esc(l.company_name)}</span>${l.pinned ? '<span class="chip info">Pinned</span>' : ''}<span class="food" title="${esc(tierName[tier(l)].slice(3))}: ${tierAction[tier(l)]}">${tierName[tier(l)].slice(0, 2)}</span></div>
     <div class="meta-row"><span class="sub">${esc(l.country)} · ${esc(l.industry)}${l.crm_stage === 'Closed lost' ? ' · closed lost' : ''}</span></div>
     <div class="why">${esc(first)}${(l.why_now || '').includes('; ') ? ` <span class="faint">+${l.why_now.split('; ').length - 1} more</span>` : ''}</div>
     ${isTop ? `<div class="angle">${esc(l.suggested_angle)}</div>` : ''}
@@ -290,7 +335,19 @@ function accCard(l, s) {
 }
 function pBoard() {
   const r = state.result;
-  return `${linaNote('One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.', tierLegend())}
+  // from week 2: carried-over accounts that heated up sit above the new ones, same height in every column
+  const carried = t => r.scored.filter(x => x.worked && x.worked.sdr === t.name && (x.status.startsWith('In sequence') || x.status.startsWith('Back on fire')));
+  const heated = t => carried(t).filter(x => x.status.startsWith('Back on fire')).sort((a, b) => b.score - a.score);
+  const maxHeated = state.week ? Math.max(...r.team.map(t => Math.min(4, heated(t).length))) : 0;
+  const carriedBlock = t => {
+    if (!state.week) return '';
+    const h = heated(t), all = carried(t), shownH = h.slice(0, 4);
+    return `<div class="carried" style="min-height:${44 + maxHeated * 46}px"><div class="sec-h">Carried over <span>${all.length}</span></div>
+      ${shownH.map(x => `<div class="mini" data-acc="${esc(x.account_id)}"><span class="food" title="${esc(tierName[tier(x)].slice(3))}: ${tierAction[tier(x)]}">${tierName[tier(x)].slice(0, 2)}</span><span class="nm">${esc(x.company_name)}</span><span class="why">heated up: ${esc(lower(x.refire[0] || ''))}</span></div>`).join('')}
+      <div class="faint more-line">${h.length > 4 ? `+${h.length - 4} more heated up · ` : ''}${all.length - h.length} in your sequence</div></div>
+      <div class="sec-h">New this week <span>${r.lists.filter(l => l.sdr === t.name).length}</span></div>`;
+  };
+  return `${linaNote(state.week ? 'One column per SDR. On top, accounts carried over from earlier weeks that heated up with a new signal: call those again. Below, this week\'s new accounts, best first.' : 'One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.', tierLegend())}
   <div class="board">${r.team.map(t => {
     const rows = r.lists.filter(l => l.sdr === t.name);
     const open = state.expanded[t.id];
@@ -301,8 +358,9 @@ function pBoard() {
         <div class="name">${esc(t.name)}</div>
         <div class="meta">${esc(t.territories.join(', ') || 'No territory')} · ${t.tenure} months</div><div class="meta">${esc(t.language)}</div>
         <div class="cap"><i style="width:${pct}%"></i></div>
-        <div class="cap-l"><span>${t.filled} of ${t.cap} slots</span><span>${rows.length ? `🥔 ${rows.filter(x => tier(x.score) === 'A').length} to call first` : ''}</span></div>
+        <div class="cap-l"><span>${t.filled} of ${t.cap} slots</span><span>${rows.length || state.week ? `🥔 ${rows.filter(x => tier(x) === 'A').length + (state.week ? heated(t).filter(x => tier(x) === 'A').length : 0)} to call first` : ''}</span></div>
       </div>
+      ${carriedBlock(t)}
       ${shown.map(l => accCard(l)).join('') || '<div class="note">No qualifying accounts in this territory.</div>'}
       ${rows.length > 8 ? `<button class="btn small ghost more" data-expand="${t.id}">${open ? 'Show fewer' : `Show all ${rows.length}`}</button>` : ''}
     </div>`;
@@ -310,38 +368,48 @@ function pBoard() {
 }
 
 // ---------- funnel ----------
-function funnelSteps() {
-  const sc = state.result.scored;
+function funnelSteps(res = state.result) {
+  const sc = res.scored;
   const by = f => sc.filter(f);
   const lb = S.get('general', 'lookback_days');
   return [
     { k: 'all', label: 'Accounts in the list', desc: 'Every account emnify sourced for the motion', items: sc, color: 'var(--faint)' },
     { k: 'crm', label: 'Already owned by sales or CS', desc: 'Customers and open deals belong to AEs and CS', items: by(s => s.status.startsWith('Excluded: CRM')), minus: true, color: 'var(--bad)' },
     { k: 'lead', label: 'Excluded by leadership', desc: 'Accounts or segments switched off in settings', items: by(s => s.status.startsWith('Excluded by')), minus: true, color: 'var(--bad)' },
+    { k: 'seq', label: 'Carried over from earlier weeks', desc: 'Already on a rep\'s list, so they take no new slot', items: by(s => s.status.startsWith('In sequence') || s.status.startsWith('Back on fire')), minus: true, color: 'var(--info)' },
     { k: 'nosig', label: `No signal in ${lb} days`, desc: 'Good companies, but no reason to call this week', items: by(s => s.status.startsWith('No signal')), minus: true, color: 'var(--warn)' },
     { k: 'cool', label: 'Recently touched', desc: `Contacted in the last ${S.get('general', 'recent_touch_days')} days, so they rest`, items: by(s => s.status.startsWith('Cool')), minus: true, color: 'var(--warn)' },
     { k: 'nosdr', label: 'No SDR covers the region', desc: 'A staffing decision, flagged for leadership', items: by(s => s.status.startsWith('Not routed: no SDR')), minus: true, color: 'var(--info)' },
-    { k: 'cap', label: 'Over this week\'s capacity', desc: 'Qualified, but reps are full: next week\'s pipeline', items: by(s => s.status.includes('at capacity')), minus: true, color: 'var(--info)' },
-    { k: 'ok', label: 'Assigned to an SDR', desc: 'Best accounts within territory and capacity', items: by(s => s.status === 'Assigned'), color: 'var(--accent)', final: true }
+    { k: 'cap', label: 'Waiting for next week', desc: 'Qualified, but reps are full: next week\'s pipeline', items: by(s => s.status.includes('at capacity')), minus: true, color: 'var(--info)' },
+    { k: 'ok', label: 'New this week', desc: by(s => s.prospect).length ? `Best accounts within territory and capacity, incl. ${by(s => s.prospect).length} best-fit prospects` : 'Best accounts within territory and capacity', items: by(s => s.status === 'Assigned'), color: 'var(--accent)', final: true }
   ];
 }
 function pFunnel() {
   const steps = funnelSteps();
+  const prev = state.weeks[state.week - 1];
+  const before = prev ? Object.fromEntries(funnelSteps(prev).map(x => [x.k, x.items.length])) : null;
   const total = steps[0].items.length || 1;
-  const open = steps.find(s => s.k === state.funnelOpen);
-  return `${linaNote(`Every one of the ${total} accounts ends up somewhere, for a stated reason. Click a step to see the accounts in it.`)}
-  <div class="funnel">${steps.filter(s => s.items.length || !s.minus).map(s => `
-    <div class="card fstep ${s.final ? 'final' : ''}" data-funnel="${s.k}">
-      <div class="fl"><b>${s.minus ? '− ' : s.final ? '= ' : ''}${s.label}</b><span>${s.desc}</span></div>
-      <div class="fbar"><i style="width:${Math.max(1.5, 100 * s.items.length / total)}%;background:${s.color}"></i></div>
-      <div class="fc">${s.items.length}</div>
+  const open = steps.find(x => x.k === state.funnelOpen);
+  const delta = x => {
+    if (!before) return '';
+    const d = x.items.length - (before[x.k] || 0);
+    return `<span class="delta ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d === 0 ? '±0' : `${d > 0 ? '+' : '−'}${Math.abs(d)}`} vs last week</span>`;
+  };
+  const r = state.result;
+  const intro = `Every one of the ${total} accounts ends up somewhere, for a stated reason, and the split changes every week. This Monday ${r.knownSignals} signals are known${prev ? `, ${r.newSignals.length} of them new since last week` : ''}. Click a step to see its accounts.`;
+  return `${linaNote(intro)}
+  <div class="funnel">${steps.filter(x => x.items.length || !x.minus || (before && before[x.k])).map(x => `
+    <div class="card fstep ${x.final ? 'final' : ''}" data-funnel="${x.k}">
+      <div class="fl"><b>${x.minus ? '− ' : x.final ? '= ' : ''}${x.label}</b><span>${x.desc}</span></div>
+      <div class="fbar"><i style="width:${Math.max(1.5, 100 * x.items.length / total)}%;background:${x.color}"></i></div>
+      <div class="fc">${x.items.length}${delta(x)}</div>
     </div>`).join('')}</div>
   ${open ? `<div class="card pad" style="margin-top:16px"><h3>${open.label} <span class="faint">(${open.items.length})</span></h3>${accTable(open.items.slice(0, 300))}</div>` : ''}`;
 }
 
 function accTable(items) {
   return `<div class="tbl-wrap"><table><thead><tr><th>Company</th><th>Region</th><th>Industry</th><th>CRM stage</th><th class="r">Score</th><th>Status</th></tr></thead><tbody>
-  ${items.map(s => `<tr class="click" data-acc="${esc(s.account_id)}"><td><b>${esc(s.company_name)}</b><div class="faint mono">${esc(s.account_id)}</div></td><td>${esc(s.region || '–')}</td><td>${esc(s.industry)}</td><td>${esc(s.crm_stage)}</td><td class="r num">${fmt(s.score)}</td><td><span class="chip ${statusKind(s.status)}">${esc(s.status.replace('Not routed: ', ''))}</span>${s.assigned_to ? ` <span class="faint">${esc(s.assigned_to)} #${s.rank}</span>` : ''}</td></tr>`).join('')}
+  ${items.map(s => `<tr class="click" data-acc="${esc(s.account_id)}"><td><b>${esc(s.company_name)}</b><div class="faint mono">${esc(s.account_id)}</div></td><td>${esc(s.region || '–')}</td><td>${esc(s.industry)}</td><td>${esc(s.crm_stage)}</td><td class="r num">${fmt(s.score)}</td><td><span class="chip ${statusKind(s.status)}">${esc(statusGroup(s))}</span>${s.assigned_to ? ` <span class="faint">${esc(s.assigned_to)} #${s.rank}</span>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -409,7 +477,15 @@ function pExplain() {
       <li><b>Pinned accounts</b> go first, whatever their score.</li>
       <li><b>Uncovered regions</b> are reported, not forced onto a rep in the wrong time zone.</li></ul></div>
   </div>
-  <div class="card ex-wide" style="margin-top:16px"><h3>8. Ignored on purpose</h3>
+  <div class="card ex-wide" style="margin-top:16px"><h3>8. Week to week</h3>
+    <div class="ignored">
+      <div><b>New this week</b><p>Fresh accounts on a rep's list this Monday, up to their weekly capacity. Capacity is new accounts per week.</p></div>
+      <div><b>Carried over</b><p>Accounts a rep already works stay with them for ${esc(S.get('general', 'recycle_after_days') ?? 28)} days. If a new signal makes one hotter (say 🍣 to 🥔), it moves to the top: call again.</p></div>
+      <div><b>New signals move accounts</b><p>New signals add points and breadth. Without them every signal fades about 15% a week and drops out after ${esc(S.get('general', 'lookback_days'))} days.</p></div>
+      <div><b>Always full capacity</b><p>Free slots first go to accounts waiting in another territory in a language the rep speaks (e.g. Spain → Mateo), then to the best-fit accounts with no signal yet: 🍞 bread & butter.</p></div>
+    </div>
+  </div>
+  <div class="card ex-wide" style="margin-top:16px"><h3>9. Ignored on purpose</h3>
     <div class="ignored">
       <div><b>funding_stage</b><p>Contradicts the dated funding signals: accounts marked "Public" carry a recent "Raised 5M Seed" signal. The dated signal is trusted instead.</p></div>
       <div><b>language</b><p>Each territory already matches its SDR's languages, so it adds nothing to routing in this data.</p></div>
@@ -473,15 +549,18 @@ function brief(t) {
   const byId = Object.fromEntries(state.result.scored.map(s => [s.account_id, s]));
   const week = dayMonth(state.result.summary.week_of);
   if (!rows.length) return { subject: `No new accounts for the week of ${week}`, blocks: [{ p: `Hi ${first},` }, { p: 'No account in your territory qualified this week. Use the time to follow up on last week\'s list.' }] };
-  const hot = rows.filter(r => tier(r.score) === 'A'), warm = rows.filter(r => tier(r.score) === 'B'), light = rows.filter(r => tier(r.score) === 'C');
+  const hot = rows.filter(r => tier(r) === 'A'), warm = rows.filter(r => tier(r) === 'B'), light = rows.filter(r => tier(r) === 'C'), pros = rows.filter(r => tier(r) === 'P');
   const top = rows[0], topAcc = byId[top.account_id];
+  // carried over: earlier accounts still on the rep's list, and those that heated up with a new signal
+  const mine = state.result.scored.filter(x => x.worked && x.worked.sdr === t.name);
+  const seqN = mine.filter(x => x.status.startsWith('In sequence')).length, fire = mine.filter(x => x.status.startsWith('Back on fire'));
   const alsoHot = hot.slice(1, 6), hotOverflow = hot.slice(6);
   const blocks = [
     { p: `Hi ${first},` },
-    { p: `Your list for this week is ready: ${rows.length} accounts${hot.length ? `, ${hot.length} of them baked potatoes to call first` : ''}. Here's where to start.` },
+    { p: `Your list for this week is ready: ${rows.length} new accounts${hot.length ? `, ${hot.length} of them baked potatoes to call first` : ''}. Here's where to start.` },
+    ...(state.week && (seqN || fire.length) ? [{ h: `Carried over (${seqN + fire.length})` }, { p: fire.length ? `${fire.length === 1 ? 'One has' : `${fire.length} have`} heated up since last week, so call again. The other ${seqN} stay in your sequence.` : `All ${seqN} stay in your sequence: keep going.` }, ...(fire.length ? [{ list: fire.sort((a, b) => b.score - a.score).slice(0, 5).map(x => ({ id: x.account_id, name: `${tierName[tier(x)].slice(0, 2)} ${x.company_name}`, text: lower(x.refire[0] || '') })) }] : []), { h: 'New this week' }] : []),
     { h: `Start with ${top.company_name}`, sub: `${top.country} · ${top.industry}`, id: top.account_id },
-    { p: 'Why now:' },
-    { list: reasons(topAcc).map(text => ({ text })) },
+    ...(top.prospect ? [{ p: 'No buying signal yet, but the strongest fit in your territory: research first, then a cold first touch.' }] : [{ p: 'Why now:' }, { list: reasons(topAcc).map(text => ({ text })) }]),
     { p: `How to open: ${(top.suggested_angle.split(': ')[1] || top.suggested_angle).replace(/^./, c => c.toLowerCase())}`, muted: true },
     { p: top.loop_in_ae ? `${top.loop_in_ae} owns this account, so loop them in before you call.` : 'No AE on this one yet, so it\'s all yours.', muted: true }
   ];
@@ -492,16 +571,20 @@ function brief(t) {
   }
   if (warm.length) blocks.push({ h: `🍲 Cream soup (${warm.length})` }, { p: 'Warm: worth a call and a follow-up email this week.' }, { group: warm, sdr: t.id });
   if (light.length) blocks.push({ h: `🍣 Sushi (${light.length})` }, { p: 'Served cold: one email from your sequence is enough this week.' }, { group: light, sdr: t.id });
+  const prosRest = pros.filter(r => r !== top);
+  if (prosRest.length) blocks.push({ h: `🍞 Bread & butter (${prosRest.length})` }, { p: 'No signal yet, but a strong fit: research, then a cold first touch built on device volume and current provider.' }, { group: prosRest, sdr: t.id });
   const ae = rows.filter(r => r.loop_in_ae && r !== top), lost = rows.filter(r => r.crm_stage === 'Closed lost'), pinned = rows.filter(r => r.pinned === 'yes');
   const heads = [];
   if (pinned.length) heads.push(`Leadership asked for ${names(pinned.map(r => r.company_name))} to be worked this week.`);
   const aeGroups = {};
   for (const r of ae) (aeGroups[r.loop_in_ae] = aeGroups[r.loop_in_ae] || []).push(r.company_name);
   for (const [who, list] of Object.entries(aeGroups)) heads.push(`Loop in ${who} before contacting ${names(list)}.`);
+  const spill = rows.filter(r => r.spillover);
+  if (spill.length) heads.push(`${names(spill.map(r => r.company_name))} ${spill.length > 1 ? 'are' : 'is'} outside your territory and came to you because you speak the language. Give the territory owner a heads-up.`);
   if (lost.length) heads.push(`${names(lost.map(r => r.company_name))} ${lost.length > 1 ? 'were' : 'was'} closed lost before. Acknowledge the history and lead with what has changed.`);
   if (heads.length) blocks.push({ h: 'Heads-up' }, { list: heads.map(text => ({ text })) });
   blocks.push({ p: 'Your full list, with every reason and angle, is in the CRM.', muted: true }, { p: 'Have a great week!' });
-  return { subject: `Your ${rows.length} accounts for the week of ${week}`, blocks };
+  return { subject: `Your ${rows.length} new accounts for the week of ${week}`, blocks };
 }
 const groupNames = (x, n = 3) => x.group.slice(0, n).map(r => r.company_name);
 function briefText(b) {
@@ -521,9 +604,11 @@ function pMessages() {
 
 // ---------- all accounts ----------
 // All accounts: every column can be sorted (click the header) and filtered (the row under it).
-const statusGroup = s => s.status === 'Assigned' ? 'Assigned'
+// Two words for week to week: "New this week" and "Carried over". Everything else is the food tier.
+const statusGroup = s => s.status === 'Assigned' ? 'New this week'
+  : s.status.startsWith('In sequence') || s.status.startsWith('Back on fire') ? 'Carried over'
   : s.status.startsWith('Not routed: no SDR') ? 'No SDR for region'
-  : s.status.includes('at capacity') ? 'Over capacity'
+  : s.status.includes('at capacity') ? 'Waiting'
   : s.status.startsWith('No signal') ? 'No signal'
   : s.status.startsWith('Cool') ? 'Recently touched'
   : s.status.startsWith('Excluded: CRM') ? 'Owned by AE / CS'
@@ -546,7 +631,7 @@ function pAll() {
     const v = f[c.k];
     if (v === undefined || v === '') return true;
     if (c.filter === 'text') return `${s.company_name} ${s.account_id}`.toLowerCase().includes(String(v).toLowerCase());
-    if (c.filter === 'tier') return v === 'unassigned' ? s.status !== 'Assigned' : s.status === 'Assigned' && tier(s.score) === v;
+    if (c.filter === 'tier') return v === 'unassigned' ? s.status !== 'Assigned' : s.status === 'Assigned' && tier(s) === v;
     if (c.filter === 'min') return c.get(s) >= Number(v);
     return String(c.get(s)) === v;
   }) && (!q || `${s.company_name} ${s.account_id} ${s.industry} ${s.country}`.toLowerCase().includes(q));
@@ -574,11 +659,130 @@ function pAll() {
     ${items.map(s => `<tr class="click" data-acc="${esc(s.account_id)}">
       <td><b>${esc(s.company_name)}</b><div class="faint mono">${esc(s.account_id)}</div></td>
       <td>${esc(s.region || '–')}</td><td>${esc(s.country || '–')}</td><td>${esc(s.industry)}</td><td>${esc(s.crm_stage)}</td>
-      <td class="r num">${fmt(s.score)}${s.status === 'Assigned' ? ` <span title="${esc(tierAction[tier(s.score)])}">${tierName[tier(s.score)].slice(0, 2)}</span>` : ''}</td>
+      <td class="r num">${fmt(s.score)}${s.status === 'Assigned' ? ` <span title="${esc(tierAction[tier(s)])}">${tierName[tier(s)].slice(0, 2)}</span>` : ''}</td>
       <td class="r num">${s.signals_used}</td>
       <td><span class="chip ${statusKind(s.status)}">${esc(statusGroup(s))}</span></td>
       <td>${s.assigned_to ? `${esc(s.assigned_to.split(' ')[0])} <span class="faint">#${s.rank}</span>` : '<span class="faint">–</span>'}</td></tr>`).join('') || `<tr><td colspan="${ALL_COLS.length}" class="faint" style="text-align:center;padding:24px">No accounts match these filters.</td></tr>`}
     </tbody></table></div></div>`;
+}
+
+// ---------- week over week ----------
+const weekLabel = i => `Week ${i + 1}`;
+const dayShort = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+// Everything the comparison between week k and the week before needs, with a plain-language reason per account.
+function weekCompare(k) {
+  const cur = state.weeks[k], prev = state.weeks[k - 1] || cur.baseline;
+  if (!prev) return null;
+  const P = Object.fromEntries(prev.scored.map(s => [s.account_id, s]));
+  const newSig = {};
+  for (const x of cur.newSignals) (newSig[String(x.account_id).trim()] = newSig[String(x.account_id).trim()] || []).push(x);
+  const strongest = id => (newSig[id] || []).map(x => x.signal_detail).sort((a, b) => (Number(S.get('signal_weight', b)) || 0) - (Number(S.get('signal_weight', a)) || 0))[0];
+  // the same four reasons every week, so weeks can be compared
+  const why = s => {
+    if (s.prospect) return '🍞 Best-fit account, no signal yet: fills a free slot';
+    if (s.spillover) return `Same-language rep had free slots: from the ${s.spillover.from} waiting list`;
+    if (newSig[s.account_id]) return 'New signal in the last 7 days';
+    return 'Earlier signal, still strong enough';
+  };
+  const entered = cur.lists.map(l => ({ ...l, reason: why(cur.scored.find(s => s.account_id === l.account_id)) }));
+  const lastWeek = prev.lists.map(l => ({ ...l, now: cur.scored.find(s => s.account_id === l.account_id) }));
+  const fire = cur.scored.filter(s => s.status.startsWith('Back on fire'));
+  const inSeq = cur.scored.filter(s => s.status.startsWith('In sequence'));
+  // score movement has its own reason: only new signals push a score up; time pulls it down
+  const scoreWhy = s => newSig[s.account_id] ? `New signal: ${strongest(s.account_id)}`
+    : P[s.account_id].signals_used > s.signals_used ? 'An older signal passed the 90-day window'
+    : 'No new activity: signals faded by about 15%';
+  const covered = new Set(cur.team.flatMap(t => t.territories));
+  const movers = cur.scored.filter(s => !s.worked && P[s.account_id] && covered.has(s.region) && s.breakdown.stageMult > 0 && (s.score > 0 || P[s.account_id].score > 0))
+    .map(s => ({ s, p: P[s.account_id], d: s.score - P[s.account_id].score, reason: scoreWhy(s) }));
+  return { cur, prev, entered, lastWeek, fire, inSeq, movers, newSig };
+}
+// One table, same rows every week, so the numbers add up and can be compared side by side.
+function bridgeRows(r) {
+  // accounts an SDR can actually work this week: a live signal, an SDR-covered region, not resting after a touch
+  const live = r.scored.filter(x => x.signals_used > 0 && x.breakdown.stageMult > 0 && !x.status.startsWith('Excluded') && !x.status.includes('no SDR') && !x.status.startsWith('Cool'));
+  const freshIds = new Set(r.newSignals.map(x => String(x.account_id).trim()));
+  const n = f => live.filter(f).length;
+  const own = r.lists.filter(l => !l.prospect && !l.spillover).length, spill = r.lists.filter(l => l.spillover).length, pros = r.lists.filter(l => l.prospect).length;
+  const seq = n(x => x.status.startsWith('In sequence')), fire = n(x => x.status.startsWith('Back on fire'));
+  const available = live.length - seq - fire;
+  return { known: r.knownSignals, fresh: r.newSignals.length, live: live.length, heated: n(x => freshIds.has(x.account_id)), seq, fire, carried: seq + fire,
+    available, own, spill, pros, total: r.lists.length, waiting: available - own - spill };
+}
+function bridgeTable() {
+  const B = state.weeks.map(bridgeRows);
+  const row = (label, key, cls = '', sign = '') => `<tr class="${cls}"><td>${sign ? `<span class="sign">${sign}</span>` : ''}${label}</td>${B.map((b, i) => `<td class="r num ${i === state.week ? 'on' : ''}">${b[key]}</td>`).join('')}</tr>`;
+  return `<div class="card pad bridge"><h3>Week by week at a glance</h3><p class="muted card-sub">Same rows every week, so each column adds up: accounts with a live signal that SDRs can work, minus those already carried over, gives what's available. The reps' 80 new slots are filled from that, then by language, then by best fit.</p>
+  <div class="tbl-wrap"><table><thead><tr><th></th>${state.weeks.map((w, i) => `<th class="r ${i === state.week ? 'on' : ''}">${weekLabel(i)} · ${dayShort(w.date)}</th>`).join('')}</tr></thead><tbody>
+    ${row('Signals known on Monday', 'known', 'muted-row')}
+    ${row('of which new in the last 7 days', 'fresh', 'muted-row sub')}
+    ${row('Accounts with a live signal SDRs can work', 'live', 'strong')}
+    ${row('of which got a new signal in the last 7 days', 'heated', 'muted-row sub2')}
+    ${row('carried over from earlier weeks', 'carried', 'sub', '−')}
+    ${row('of which heated up: new signal since their rep got them', 'fire', 'muted-row sub2')}
+    ${row('Available for new slots', 'available', 'strong', '=')}
+    ${row('from their own territory', 'own', 'sub')}
+    ${row('from another territory (same language)', 'spill', 'sub', '+')}
+    ${row('🍞 best-fit accounts, no signal yet', 'pros', 'sub', '+')}
+    ${row('New this week', 'total', 'strong total', '=')}
+    ${row('Waiting for next week', 'waiting', 'muted-row')}
+  </tbody></table></div></div>`;
+}
+function moversHtml(c, prevLabel = 'Last week') {
+  const up = c.movers.filter(m => m.d > 0.05).sort((a, b) => b.d - a.d).slice(0, 10);
+  const down = c.movers.filter(m => m.d < -0.05).sort((a, b) => a.d - b.d).slice(0, 10);
+  const mrow = m => `<tr class="click" data-acc="${esc(m.s.account_id)}"><td><b>${esc(m.s.company_name)}</b><div class="faint">${esc(m.s.region)} · ${esc(m.s.industry)}</div></td><td class="r num">${fmt(m.p.score)}</td><td class="r num">${fmt(m.s.score)}</td><td class="r num ${m.d > 0 ? 'up' : 'down'}">${m.d > 0 ? '▲' : '▼'} ${fmt(Math.abs(m.d))}</td><td>${esc(m.reason)}</td><td><span class="chip ${statusKind(m.s.status)}">${esc(statusGroup(m.s))}</span></td></tr>`;
+  const mtable = (rows, empty) => rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Account</th><th class="r">${prevLabel}</th><th class="r">This week</th><th class="r">Change</th><th>Why</th><th>Now</th></tr></thead><tbody>${rows.map(mrow).join('')}</tbody></table></div>` : `<p class="muted">${empty}</p>`;
+  return `<div class="card pad"><h3>▲ Biggest moves up</h3><p class="muted card-sub">Accounts that are not carried over, in regions an SDR covers, ranked by how much their score rose. "Now" shows where each one ended up.</p>${mtable(up, 'No account rose: without new signals, scores can only fade.')}</div>
+  <div class="card pad"><h3>▼ Biggest moves down</h3><p class="muted card-sub">Every signal loses about 15% of its weight per week, so accounts without new activity sink.</p>${mtable(down, 'No account fell.')}</div>`;
+}
+function pWeeks() {
+  const k = state.week, cur = state.weeks[k], c = weekCompare(k), prev = c.prev;
+  const prevLabel = k ? `${weekLabel(k - 1)} (${dayShort(prev.date)})` : `the Monday before (${dayShort(prev.date)})`;
+  const note = linaNote(`Same three files, replayed as consecutive Mondays: each week only sees the signals dated up to that day. Every account is either new this week or carried over, and its food tier says how hot it is. A carried-over account that gets a new signal turns hotter and goes back to the top of its rep's list.`);
+  const list = rows => `<ul class="reasons">${rows.map(([n, label]) => `<li><b>${n}</b>${label}</li>`).join('')}</ul>`;
+  // 1. what the new accounts look like, by food
+  const foods = ['A', 'B', 'C', 'P'].map(t => [cur.lists.filter(l => tier(l) === t).length, `${tierName[t]}: ${tierAction[t]}`]);
+  // 2. how they got onto the lists, same four reasons every week
+  const rc = {};
+  for (const e of c.entered) rc[e.reason] = (rc[e.reason] || 0) + 1;
+  const reasonOrder = ['New signal in the last 7 days', 'Earlier signal, still strong enough'];
+  const reasons = [...reasonOrder.map(r => [rc[r] || 0, r]), ...Object.entries(rc).filter(([r]) => !reasonOrder.includes(r)).map(([r, n]) => [n, r])];
+  // 3. strongest signal type of the new accounts
+  const byType = {};
+  for (const l of cur.lists) { const a = cur.scored.find(x => x.account_id === l.account_id); const t = a?.breakdown.signals[0]?.type || 'No signal yet (🍞)'; byType[t] = (byType[t] || 0) + 1; }
+  const types = Object.entries(byType).sort((x, y) => y[1] - x[1]).map(([t, n]) => [n, esc(t)]);
+  // 4. pool coverage
+  const cov = cur.summary.coverage.map(v => `<div class="cov ${v.weeks < 1 ? 'low' : ''}"><b>${esc(v.region)}</b><span>${v.backlog} qualified accounts waiting for ${v.cap} weekly slots: ${v.weeks < 1 ? 'less than a week left' : `about ${v.weeks} more week${v.weeks > 1 ? 's' : ''}`}</span></div>`).join('');
+  // 5. carried over and heated up
+  const heated = c.fire.sort((x, y) => y.score - x.score);
+  const heatedHtml = heated.length
+    ? `<div class="tbl-wrap"><table><thead><tr><th>Account</th><th>Now</th><th>Rep</th><th>On their list since</th><th>New signal</th></tr></thead><tbody>${heated.map(x => `<tr class="click" data-acc="${esc(x.account_id)}"><td><b>${esc(x.company_name)}</b></td><td><span class="tier ${tier(x)}">${tierName[tier(x)]}</span></td><td>${esc(x.worked.sdr)}</td><td>${dayShort(x.worked.date)}</td><td>${esc(x.refire.slice(0, 2).join('; '))}${x.refire.length > 2 ? ` <span class="faint">+${x.refire.length - 2} more</span>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+    : `<p class="muted empty">${k ? 'None this week: no carried-over account got a new signal.' : 'Nothing is carried over yet: this is the first week, so every account on the lists is new.'}</p>`;
+  return `<div class="wk">
+    ${note}
+    <p class="muted cmp-line">Showing <b>${weekLabel(k)} (${dayShort(cur.date)})</b>, compared with ${prevLabel}. Switch weeks at the top of the page.</p>
+    ${bridgeTable()}
+    <div class="wk-grid three">
+      <div class="card pad"><h3>What this week's ${cur.lists.length} new accounts look like</h3>${list(foods)}</div>
+      <div class="card pad"><h3>Their strongest signal</h3>${list(types)}</div>
+      <div class="card pad"><h3>Signal pool left at this capacity</h3><p class="muted card-sub">How long the accounts still waiting keep the reps busy if no new signals arrive.</p>${cov}</div>
+    </div>
+    <div class="card pad"><h3>Carried over and heated up</h3><p class="muted card-sub">Accounts a rep already works that got a new signal this week. They stay with the same rep and go to the top of that rep's Monday brief, without taking a new slot.</p>${heatedHtml}</div>
+    ${moversHtml(c, k ? weekLabel(k - 1) : dayShort(prev.date))}
+  </div>`;
+}
+
+function weekDelta(s) {
+  const k = state.week, prev = state.weeks[k - 1];
+  if (!prev) return '';
+  const p = prev.scored.find(x => x.account_id === s.account_id);
+  if (!p) return '';
+  const fresh = state.weeks[k].newSignals.filter(x => String(x.account_id).trim() === s.account_id);
+  return `<div class="sec"><h3>Since last week</h3><dl class="kv">
+    <dt>Last week</dt><dd>${fmt(p.score)} · ${esc(statusGroup(p))}${p.assigned_to ? ` (${esc(p.assigned_to)} #${p.rank})` : ''}</dd>
+    <dt>This week</dt><dd>${fmt(s.score)} · ${esc(statusGroup(s))}${s.assigned_to ? ` (${esc(s.assigned_to)} #${s.rank})` : ''}</dd>
+    <dt>New signals</dt><dd>${fresh.length ? esc(fresh.map(x => x.signal_detail).join('; ')) : '<span class="faint">none, so its signals faded by about 15%</span>'}</dd></dl></div>`;
 }
 
 // ---------- account drawer ----------
@@ -588,7 +792,13 @@ function openAccount(id) {
   const b = s.breakdown;
   const ex = S.get('exclude', id) !== undefined, pin = S.get('pin', id) !== undefined;
   const dropped = state.result.issues.filter(i => i.area === 'signals' && i.item === id);
-  const why = s.status === 'Assigned'
+  const why = s.status === 'Assigned' && s.spillover
+    ? `Routed to <b>${esc(s.assigned_to)}</b> across territories: it waited in the ${esc(s.spillover.from)} queue, ${esc(s.assigned_to.split(' ')[0])} had free slots and speaks ${esc(s.spillover.language)}, the language of ${esc(s.country)}. A good signal account beats a no-signal prospect.`
+    : s.status === 'Assigned' && s.prospect
+    ? `Assigned to <b>${esc(s.assigned_to)}</b> as a best-fit prospect: no buying signal yet, but one of the strongest-fit accounts in ${esc(s.region)}. There weren't enough signal accounts to fill every slot, so this keeps ${esc(s.assigned_to.split(' ')[0])} at full capacity.`
+    : s.status.startsWith('In sequence') ? `Carried over: ${esc(s.worked.sdr)} has had this account on their list since ${esc(dayShort(s.worked.date))}. It stays with them while the sequence runs (${esc(S.get('general', 'recycle_after_days') ?? 28)} days) and doesn't take a new slot.`
+    : s.status.startsWith('Back on fire') ? `Carried over and heated up: ${esc(s.worked.sdr)} has had it since ${esc(dayShort(s.worked.date))}, and a new signal arrived since (<b>${esc(s.refire.join('; '))}</b>). It's now ${tierName[tier(s)]}, so it goes to the top of their Monday brief: call again. No new slot needed.`
+    : s.status === 'Assigned'
     ? `Assigned to <b>${esc(s.assigned_to)}</b> at rank ${s.rank}${s.pinned ? ' (pinned by leadership)' : ''}. It's in ${esc(s.region)}, which ${esc(s.assigned_to)} covers, and it scored high enough to make their ${state.result.team.find(t => t.name === s.assigned_to)?.cap}-account list.`
     : s.status.includes('at capacity') ? `Qualified, but the ${esc(s.region)} reps were full before reaching it. It would be in next week's pipeline.`
     : s.status.startsWith('Not routed: no SDR') ? `No SDR covers ${esc(s.region)}. Leadership can assign the region to a rep in settings.`
@@ -600,10 +810,11 @@ function openAccount(id) {
   <aside class="drawer" role="dialog" aria-label="${esc(s.company_name)}">
     <div class="dh"><div><div class="faint mono" style="font-size:12px">${esc(s.account_id)}</div><h2>${esc(s.company_name)}</h2>
       <div class="muted" style="font-size:13.5px">${esc(s.country)} · ${esc(s.region)} · ${esc(s.industry)} · ${esc(s.crm_stage)}${s.ae_owner ? ` · AE ${esc(s.ae_owner)}` : ''}</div>
-      <div style="margin-top:8px"><span class="chip ${statusKind(s.status)}">${esc(s.status)}</span>${s.status === 'Assigned' ? ` <span class="tier ${tier(s.score)}">${tierName[tier(s.score)]}</span>` : ''}</div></div>
+      <div style="margin-top:8px"><span class="chip ${statusKind(s.status)}">${esc(statusGroup(s))}</span>${s.status === 'Assigned' ? ` <span class="tier ${tier(s)}">${tierName[tier(s)]}</span>` : ''}</div></div>
       <button class="btn small ghost x" data-close aria-label="Close">✕</button></div>
     <div class="db">
       <div class="note">${why}</div>
+      ${weekDelta(s)}
       <div class="eq">
         <div class="p"><b>${fmt(b.intent)}</b><span>intent</span></div><span class="o">×</span>
         <div class="p"><b>${fmt(b.fit, 2)}</b><span>fit</span></div><span class="o">×</span>
@@ -678,12 +889,16 @@ function openSettings() {
       </div></details>
       <details class="set"><summary>Time window</summary><div class="sb">
         <p class="why">How far back signals count, how fast they fade, and how long a touched account rests.</p>
-        <div class="frow"><label>Run date<div class="hint">signals are aged from this date</div></label><input type="date" data-sec="general" data-key="as_of_date" value="${esc(S.get('general', 'as_of_date'))}"></div>
+        <div class="frow"><label>Run date of week 3<div class="hint">weeks 1 and 2 are 14 and 7 days earlier</div></label><input type="date" data-sec="general" data-key="as_of_date" value="${esc(S.get('general', 'as_of_date'))}"></div>
         ${numRow('general', 'lookback_days', 'Lookback window (days)', 'older signals are dropped', '1')}
         ${numRow('general', 'half_life_days', 'Half-life (days)', 'weight halves every N days', '1')}
         ${numRow('general', 'recent_touch_days', 'Cool-down after a touch (days)', '', '1')}
         ${numRow('general', 'extra_signal_same_type', 'Repeat of the same type counts', '0.5 = half', '0.05')}
         ${numRow('general', 'multi_type_bonus', 'Bonus per extra signal type', '0.15 = +15%', '0.05')}
+        <div class="grp">Week to week</div>
+        ${numRow('general', 'recycle_after_days', 'Sequence length (days)', 'after this, an account without reply returns to the pool', '1')}
+        <div class="frow"><label>Fill empty slots with best-fit accounts<div class="hint">keeps every rep at full capacity</div></label><input type="checkbox" data-sec="general" data-key="fill_with_fit" ${Number(S.get('general', 'fill_with_fit') ?? 1) ? 'checked' : ''}></div>
+        <div class="frow"><label>Language spillover<div class="hint">a rep with free slots takes accounts from another territory's queue in a language they speak</div></label><input type="checkbox" data-sec="general" data-key="language_spillover" ${Number(S.get('general', 'language_spillover') ?? 1) ? 'checked' : ''}></div>
       </div></details>
       <details class="set"><summary>Signal weights (0–10)</summary><div class="sb">
         <p class="why">How close each signal is to a buying decision. Signals not listed use their type default.</p>
@@ -744,12 +959,18 @@ function downloadExcel() {
     ...funnelSteps().slice(1).map(s => ({ item: s.label, value: s.items.length })),
     { item: 'Settings', value: `${state.settingsSource}${S.changes() ? ` + ${S.changes()} changes` : ''}` }
   ]), 'Summary');
-  for (const t of r.team) XLSX.utils.book_append_sheet(wb, sheet(r.lists.filter(l => l.sdr === t.name).map(({ week_of, sdr, ...x }) => ({ ...x, tier: tierName[tier(x.score)] }))), t.name.slice(0, 31));
+  for (const t of r.team) XLSX.utils.book_append_sheet(wb, sheet(r.lists.filter(l => l.sdr === t.name).map(({ week_of, sdr, ...x }) => ({ ...x, tier: tierName[tier(x)] }))), t.name.slice(0, 31));
   XLSX.utils.book_append_sheet(wb, sheet(r.lists), 'All assigned');
+  const cmp = weekCompare(state.week);
+  if (cmp) XLSX.utils.book_append_sheet(wb, sheet([
+    ...cmp.entered.map(e => ({ group: 'New on lists', account: e.company_name, sdr: e.sdr, rank: e.rank, why: e.reason })),
+    ...cmp.fire.map(x => ({ group: 'Carried over, heated up', account: x.company_name, sdr: x.worked.sdr, rank: '', why: x.refire.join('; ') })),
+    ...cmp.movers.sort((a, b) => b.d - a.d).map(m => ({ group: m.d >= 0 ? 'Moved up' : 'Moved down', account: m.s.company_name, sdr: m.s.assigned_to, rank: m.s.rank, why: m.reason, last_week: m.p.score, this_week: m.s.score }))
+  ]), 'Week over week');
   XLSX.utils.book_append_sheet(wb, sheet(r.scored.map(({ breakdown, ...x }) => x)), 'All accounts scored');
   XLSX.utils.book_append_sheet(wb, sheet(r.issues), 'Data issues');
   XLSX.utils.book_append_sheet(wb, sheet(state.settings.map(({ section, key, value }) => ({ section, key, value }))), 'Settings used');
-  XLSX.writeFile(wb, `sdr_lists_week_of_${r.summary.week_of}.xlsx`);
+  XLSX.writeFile(wb, `sdr_lists_week_${state.week + 1}_${r.summary.week_of}.xlsx`);
 }
 function downloadSettings() {
   const wb = XLSX.utils.book_new();
@@ -779,7 +1000,7 @@ function bindCommon() {
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, [data-acc], [data-funnel], [data-close], [data-tab], [data-goto-list], th[data-sort]');
+  const t = e.target.closest('button, [data-acc], [data-funnel], [data-close], [data-tab], [data-goto-list], th[data-sort], [data-week]');
   if (!t) return;
   if (t.id === 'runBtn' || t.id === 'runFromSettings') { closeOverlay(); state.tab = 'board'; run(); window.scrollTo(0, 0); return; }
   if (t.id === 'sampleBtn') return loadSample();
@@ -792,6 +1013,7 @@ document.addEventListener('click', async e => {
   if (t.hasAttribute('data-close')) return closeOverlay();
   if (t.hasAttribute('data-open-settings')) return openSettings();
   if (t.dataset.tab) { state.tab = t.dataset.tab; return render(); }
+  if (t.dataset.week !== undefined) return setWeek(Number(t.dataset.week));
   if (t.dataset.expand) { state.expanded[t.dataset.expand] = !state.expanded[t.dataset.expand]; return render(); }
   if (t.dataset.funnel) { state.funnelOpen = state.funnelOpen === t.dataset.funnel ? null : t.dataset.funnel; return render(); }
   if (t.dataset.copy) { const tm = state.result.team.find(x => x.id === t.dataset.copy); try { await navigator.clipboard.writeText(message(tm)); toast('Message copied'); } catch { toast('Copy not allowed in this browser'); } return; }
@@ -819,7 +1041,7 @@ overlay.addEventListener('change', e => {
     return afterSettingsChange();
   }
   if (!el.dataset.sec) return;
-  const v = el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
+  const v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
   S.set(el.dataset.sec, el.dataset.key, v);
   refreshSettingsMarks();
   afterSettingsChange();

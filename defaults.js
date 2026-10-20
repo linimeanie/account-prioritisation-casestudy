@@ -34,6 +34,19 @@ export const DEFAULT_SETTINGS = [
   "section": "general",
   "key": "max_reasons",
   "value": 3
+ }, {
+  "section": "general",
+  "key": "recycle_after_days",
+  "value": 28
+ },
+ {
+  "section": "general",
+  "key": "fill_with_fit",
+  "value": 1
+ }, {
+  "section": "general",
+  "key": "language_spillover",
+  "value": 1
  },
  {
   "section": "signal_weight",
@@ -449,5 +462,10 @@ export const DEFAULT_SETTINGS = [
   "section": "angle",
   "key": "Funding round",
   "value": "Fresh budget and scale plans: position for growth and cost control."
+ },
+ {
+  "section": "angle",
+  "key": "prospect",
+  "value": "No signal yet: research the account, then a cold first touch built on device volume and current provider."
  }
 ];
