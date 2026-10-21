@@ -34,7 +34,8 @@ export const DEFAULT_SETTINGS = [
   "section": "general",
   "key": "max_reasons",
   "value": 3
- }, {
+ },
+ {
   "section": "general",
   "key": "recycle_after_days",
   "value": 28
@@ -43,25 +44,16 @@ export const DEFAULT_SETTINGS = [
   "section": "general",
   "key": "fill_with_fit",
   "value": 1
- }, {
+ },
+ {
   "section": "general",
   "key": "language_spillover",
   "value": 1
  },
  {
   "section": "signal_weight",
-  "key": "Current provider contract renews in ~4 months",
-  "value": 10
- },
- {
-  "section": "signal_weight",
   "key": "Reported dissatisfaction with coverage on review site",
   "value": 9
- },
- {
-  "section": "signal_weight",
-  "key": "Contract renewal expected Q1 2027",
-  "value": 8
  },
  {
   "section": "signal_weight",
@@ -201,6 +193,21 @@ export const DEFAULT_SETTINGS = [
  {
   "section": "signal_type_default",
   "key": "Funding round",
+  "value": 5
+ },
+ {
+  "section": "renewal_band",
+  "key": "3",
+  "value": 10
+ },
+ {
+  "section": "renewal_band",
+  "key": "6",
+  "value": 8
+ },
+ {
+  "section": "renewal_band",
+  "key": "12",
   "value": 5
  },
  {

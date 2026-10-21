@@ -58,6 +58,22 @@ export function prioritise(accounts, signals, sdrs, settingsRows, ctx = {}) {
     acc[id] = { ...a, account_id: id, country, region, signals: [] };
   }
 
+  // ---------- renewal windows ----------
+  // "renews in ~4 months" = signal date + 4 months; "Q1 2027" = the middle of that quarter (15 Feb 2027)
+  const renewalDate = (detail, logged) => {
+    let m = detail.match(/renews? in ~?\s*(\d+)\s*months?/i);
+    if (m) { const d = new Date(logged); d.setUTCMonth(d.getUTCMonth() + Number(m[1])); return d; }
+    m = detail.match(/\bQ([1-4])\s*(20\d\d)\b/i);
+    if (m && /renew/i.test(detail)) return new Date(Date.UTC(Number(m[2]), (Number(m[1]) - 1) * 3 + 1, 15));
+    return null;
+  };
+  // bands: { months up to: weight }, e.g. 3 → 10, 6 → 8, 12 → 5; beyond the last band, the last band's weight
+  const bands = Object.entries(tbl('renewal_band')).map(([k, v]) => [Number(k), Number(v)]).filter(([k, v]) => !isNaN(k) && !isNaN(v)).sort((a, b) => a[0] - b[0]);
+  const renewalWeight = months => {
+    for (const [upTo, w] of bands) if (months <= upTo) return w;
+    return bands.length ? bands[bands.length - 1][1] : 8;
+  };
+
   // ---------- clean signals ----------
   const seen = new Set();
   let used = 0;
@@ -69,8 +85,20 @@ export function prioritise(accounts, signals, sdrs, settingsRows, ctx = {}) {
     if (!acc[id]) { issue('signals', id, 'Account not in accounts list', 'Signal dropped'); continue; }
     if (!date) { issue('signals', id, `No date: ${s.signal_detail}`, 'Signal dropped (age unknown)'); continue; }
     const age = daysBetween(asOf, toDate(date));
-    if (age > lookback) { issue('signals', id, `Older than ${lookback} days (${date})`, 'Signal dropped'); continue; }
     if (age < 0) { issue('signals', id, `Dated after as_of_date (${date})`, 'Signal dropped'); continue; }
+    // renewal signals are scored on time to the renewal, not on signal age: no fading and no 90-day cut
+    const renewal = renewalDate(str(s.signal_detail), toDate(date));
+    if (renewal) {
+      const months = (renewal - asOf) / (86400000 * 30.44);
+      if (months < 0) { issue('signals', id, `Renewal date passed (${renewal.toISOString().slice(0, 10)}): ${s.signal_detail}`, 'Signal dropped, flag to the account owner'); continue; }
+      const w = renewalWeight(months);
+      acc[id].signals.push({ type: str(s.signal_type), detail: str(s.signal_detail), source: str(s.source), date, age,
+        weight: w, weightFrom: 'renewal date', renewal: renewal.toISOString().slice(0, 10), monthsToRenewal: Math.round(months * 10) / 10,
+        decay: 1, points: w });
+      used++;
+      continue;
+    }
+    if (age > lookback) { issue('signals', id, `Older than ${lookback} days (${date})`, 'Signal dropped'); continue; }
     const byDetail = num(tbl('signal_weight')[str(s.signal_detail)]);
     const byType = num(tbl('signal_type_default')[str(s.signal_type)]);
     const w = byDetail ?? byType ?? 3;

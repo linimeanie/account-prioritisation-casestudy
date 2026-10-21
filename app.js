@@ -184,6 +184,9 @@ function restoreState() {
     if (d && d.data) { state.data = d.data; state.names = d.names || {}; savedDataRef = state.data; }
     if (u) Object.assign(state, { week: u.week || 0, tab: u.tab || 'board', settings: u.settings || state.settings, baseSettings: u.baseSettings || state.baseSettings,
       settingsSource: u.settingsSource || state.settingsSource, colFilters: u.colFilters || {}, sort: u.sort || state.sort, expanded: u.expanded || {} });
+    // settings saved before a new rule existed get the new default rows added (e.g. renewal bands)
+    const fill = rows => { const have = new Set(rows.map(r => `${r.section}|${r.key}`)); return [...rows, ...clone(DEFAULT_SETTINGS).filter(r => !have.has(`${r.section}|${r.key}`))]; };
+    if (state.settingsSource === 'built-in defaults') { state.settings = fill(state.settings); state.baseSettings = fill(state.baseSettings); }
     return !!(u && u.built && ready());
   } catch { return false; }
 }
@@ -439,10 +442,12 @@ function pExplain() {
     <div class="wcols">
     ${typeOrder.map(t => {
       const all = [...types[t].entries()];
-      const own = all.filter(([d]) => wDetail[d] !== undefined).sort((a, b) => Number(wDetail[b[0]]) - Number(wDetail[a[0]]));
-      const rest = all.filter(([d]) => wDetail[d] === undefined);
+      const isRenewal = d => /renews? in ~?\s*\d+\s*months?/i.test(d) || (/renew/i.test(d) && /\bQ[1-4]\s*20\d\d\b/i.test(d));
+      const dated = all.filter(([d]) => isRenewal(d));
+      const own = all.filter(([d]) => !isRenewal(d) && wDetail[d] !== undefined).sort((a, b) => Number(wDetail[b[0]]) - Number(wDetail[a[0]]));
+      const rest = all.filter(([d]) => !isRenewal(d) && wDetail[d] === undefined);
       const bar = (label, w, n) => `<div class="wbar"><span class="wl">${label} <span class="faint">(${n})</span></span><span class="b"><i style="width:${w * 10}%"></i></span><span class="v">${w}</span></div>`;
-      return `<div class="wgroup"><div class="grp">${esc(t)}</div>${own.map(([d, n]) => bar(esc(d), Number(wDetail[d]), n)).join('')}
+      return `<div class="wgroup"><div class="grp">${esc(t)}</div>${dated.map(([d, n]) => `<div class="wbar"><span class="wl">${esc(d)} <span class="faint">(${n})</span></span><span class="faint" style="font-size:12px">by renewal date</span><span class="v">5–10</span></div>`).join('')}${own.map(([d, n]) => bar(esc(d), Number(wDetail[d]), n)).join('')}
         ${rest.length ? bar(`${own.length ? 'Other' : 'All'} ${rest.length} variant${rest.length > 1 ? 's' : ''}, e.g. <i>${esc(rest[0][0])}</i>`, Number(wType[t] ?? 3), rest.reduce((x, [, n]) => x + n, 0)) : ''}</div>`;
     }).join('')}
     </div>
@@ -450,6 +455,7 @@ function pExplain() {
   <div class="ex-grid">
     <div class="card"><h3>2. Fresh signals count more</h3>
       <p>A signal's weight halves every <b>${hl} days</b> and drops out after <b>${lb} days</b>. A weekly list is about <i>why now</i>: last week's pricing visit beats one from two months ago.</p>
+      <p><b>Except renewals:</b> they get more urgent as the date approaches, so they never fade. The renewal date is the signal date + N months ("renews in ~4 months") or the middle of the quarter ("Q1 2027" = 15 Feb 2027). Weight by months to renewal: ${renewalBandsText()}. Once the date has passed, the signal is dropped and flagged.</p>
       <svg viewBox="-12 -14 340 136" class="decay"><line x1="0" y1="100" x2="300" y2="100" stroke="var(--border)"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
         ${[0, hl, Math.min(2 * hl, lb), lb].map(d => `<text x="${(d / lb) * 300}" y="116" font-size="10" fill="var(--faint)" text-anchor="middle">${d}d</text><circle cx="${(d / lb) * 300}" cy="${100 - Math.pow(.5, d / hl) * 90}" r="3" fill="var(--accent)"/><text x="${(d / lb) * 300 + 6}" y="${94 - Math.pow(.5, d / hl) * 90}" font-size="10" fill="var(--muted)">${Math.round(Math.pow(.5, d / hl) * 100)}%</text>`).join('')}
       </svg>
@@ -494,6 +500,11 @@ function pExplain() {
     </div>
   </div>`;
 }
+
+const renewalBandsText = () => {
+  const b = S.entries('renewal_band').map(([k, v]) => [Number(k), v]).sort((x, y) => x[0] - y[0]);
+  return b.map(([k, v], i) => `${i ? `${b[i - 1][0]}–${k}` : `≤${k}`} months → <b>${esc(v)}</b>`).join(', ');
+};
 
 // ---------- data fixes ----------
 function pFixes() {
@@ -824,7 +835,7 @@ function openAccount(id) {
       </div>
       <div class="sec"><h3>Intent: the signals behind it</h3>
         ${b.signals.length ? `<div class="tbl-wrap"><table><thead><tr><th>Signal</th><th class="r">Weight</th><th class="r">Age</th><th class="r">Fresh</th><th class="r">Counts</th><th class="r">Points</th></tr></thead><tbody>
-        ${b.signals.map(x => `<tr><td>${esc(x.detail)}<div class="faint" style="font-size:12px">${esc(x.type)} · ${esc(x.source)} · ${esc(x.date)}</div></td><td class="r num">${x.weight}</td><td class="r num">${x.age}d</td><td class="r num">${Math.round(x.decay * 100)}%</td><td class="r num">${x.share === 1 ? '100%' : `${Math.round(x.share * 100)}%`}</td><td class="r num"><b>${fmt(x.counted, 2)}</b></td></tr>`).join('')}
+        ${b.signals.map(x => `<tr><td>${esc(x.detail)}<div class="faint" style="font-size:12px">${esc(x.type)} · ${esc(x.source)} · ${esc(x.date)}${x.renewal ? `<br>Renewal ~${esc(dayShort(x.renewal))} ${esc(x.renewal.slice(0, 4))}, in ${x.monthsToRenewal} months: weight from the renewal window, no fading` : ''}</div></td><td class="r num">${x.weight}</td><td class="r num">${x.age}d</td><td class="r num">${Math.round(x.decay * 100)}%</td><td class="r num">${x.share === 1 ? '100%' : `${Math.round(x.share * 100)}%`}</td><td class="r num"><b>${fmt(x.counted, 2)}</b></td></tr>`).join('')}
         </tbody></table></div>
         <div class="note">Signal points add up to <b>${fmt(b.intentBase, 2)}</b>. ${b.types} signal type${b.types > 1 ? 's' : ''} → breadth ×${fmt(b.breadth, 2)} → intent <b>${fmt(b.intent, 2)}</b>. "Fresh" is the weight left after ${S.get('general', 'half_life_days')}-day halving; "Counts" is 50% for repeats of a type already counted.</div>`
         : '<div class="note">No usable signal in the lookback window.</div>'}
@@ -899,6 +910,10 @@ function openSettings() {
         ${numRow('general', 'recycle_after_days', 'Sequence length (days)', 'after this, an account without reply returns to the pool', '1')}
         <div class="frow"><label>Fill empty slots with best-fit accounts<div class="hint">keeps every rep at full capacity</div></label><input type="checkbox" data-sec="general" data-key="fill_with_fit" ${Number(S.get('general', 'fill_with_fit') ?? 1) ? 'checked' : ''}></div>
         <div class="frow"><label>Language spillover<div class="hint">a rep with free slots takes accounts from another territory's queue in a language they speak</div></label><input type="checkbox" data-sec="general" data-key="language_spillover" ${Number(S.get('general', 'language_spillover') ?? 1) ? 'checked' : ''}></div>
+      </div></details>
+      <details class="set"><summary>Renewal windows</summary><div class="sb">
+        <p class="why">Competitor renewals are scored on months until the renewal, not on signal age. Each row: up to this many months away → this weight.</p>
+        ${S.entries('renewal_band').map(([k]) => numRow('renewal_band', k, `Up to ${k} months away`, '', '1')).join('')}
       </div></details>
       <details class="set"><summary>Signal weights (0–10)</summary><div class="sb">
         <p class="why">How close each signal is to a buying decision. Signals not listed use their type default.</p>
