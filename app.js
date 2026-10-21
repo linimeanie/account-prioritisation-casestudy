@@ -461,7 +461,7 @@ function pExplain() {
       </svg>
     </div>
     <div class="card"><h3>3. Breadth beats repetition</h3>
-      <p>Within one signal type, the strongest counts fully and each repeat counts <b>${Math.round(100 * (S.get('general', 'extra_signal_same_type') ?? .5))}%</b>, so five downloads can't outweigh one renewal.</p>
+      <p>Within one signal type, the strongest counts fully and each repeat counts <b>${Math.round(100 * (S.get('general', 'extra_signal_same_type') ?? .5))}%</b>, so repeating the same activity adds less than a new kind of activity.</p>
       <p>Each additional <i>type</i> adds <b>${Math.round(100 * (S.get('general', 'multi_type_bonus') ?? .15))}%</b>. Pricing visits plus engineering hires plus a new CTO means several teams are moving, which is what a real buying committee looks like.</p>
     </div>
     <div class="card"><h3>4. Fit: devices first</h3>
@@ -494,7 +494,7 @@ function pExplain() {
   <div class="card ex-wide" style="margin-top:16px"><h3>9. Ignored on purpose</h3>
     <div class="ignored">
       <div><b>funding_stage</b><p>Contradicts the dated funding signals: accounts marked "Public" carry a recent "Raised 5M Seed" signal. The dated signal is trusted instead.</p></div>
-      <div><b>language</b><p>Each territory already matches its SDR's languages, so it adds nothing to routing in this data.</p></div>
+      <div><b>country</b><p>Only used to fix the region and to match a rep's language when slots are free. No country gets a bonus or a penalty.</p></div>
       <div><b>source</b><p>Kept for transparency, not weighted. The signal text already says how strong the signal is.</p></div>
       <div><b>Machine learning</b><p>No win/loss history to learn from yet. Explicit weights leadership can read, tuned on conversion after a few weeks.</p></div>
     </div>
