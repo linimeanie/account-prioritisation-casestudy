@@ -381,7 +381,7 @@ dl.sum dd { white-space: normal; }
 .theme-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.18); border-radius: 9999px; padding: 6px 12px; font-size: 13px; font-weight: 550; cursor: pointer; }
 .theme-btn:hover { background: rgba(255,255,255,.16); }
 .theme-btn svg { width: 15px; height: 15px; }
-/* intro written as a note from Lina */
+/* intro written as a guide note */
 .note-from { grid-column: span 2; display: flex; gap: 14px; align-items: flex-end; margin-top: 4px; }
 .note-from .avatar { flex: 0 0 48px; height: 48px; border-radius: 50%; overflow: hidden; box-shadow: var(--shadow); }
 .note-from .avatar svg { width: 100%; height: 100%; display: block; }

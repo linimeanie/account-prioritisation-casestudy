@@ -211,9 +211,9 @@ function territoryText() {
   });
 }
 
-// A short note from Lina, used for the page intros. The avatar is a small whale.
+// A short guide note at the top of each page section. The avatar is a small whale.
 const WHALE = '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#efe9fd"/><path d="M30 20c-1-4-4-6-6-6m6 6c1-4 4-6 6-6m-6 6v-6" stroke="#a285ef" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M9 38c0-8 8-13 19-13 10 0 17 5 19 11l4-5c2-2 5-1 5 1l-2 7 3 5c1 2-1 4-3 3l-6-2c-4 5-11 8-20 8C16 53 9 47 9 38z" fill="#6a3be5"/><path d="M12 42c3 5 9 8 16 8 6 0 11-2 15-5" stroke="#efe9fd" stroke-width="2" fill="none" stroke-linecap="round" opacity=".7"/><circle cx="20" cy="35" r="2.2" fill="#0e022d"/></svg>';
-const linaNote = (text, extra = '') => `<div class="panel-note"><div class="note-from"><div class="avatar" aria-hidden="true">${WHALE}</div><div class="bubble"><div class="who"><b>Lina</b><span>Case study author</span></div><p>${text}</p>${extra}</div></div></div>`;
+const guideNote = (text, extra = '') => `<div class="panel-note"><div class="note-from"><div class="avatar" aria-hidden="true">${WHALE}</div><div class="bubble"><div class="who"><b>Note</b><span>How to read this</span></div><p>${text}</p>${extra}</div></div></div>`;
 
 function renderIntro() {
   const f = (kind, label, desc, optional) => {
@@ -227,7 +227,7 @@ function renderIntro() {
   <div class="wrap">
     <section class="hero">
       <h1>Each SDR's best accounts for the week,<br><em>with the reason behind every pick</em></h1>
-      ${linaNote(`Drop in the three case files and the prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. The signal weights and scoring rules live in Leadership settings on the right: change any of them, before or after the run, and the lists re-rank instantly.`)}
+      ${guideNote(`Drop in the three case files and the prototype cleans the data, scores all 500 accounts, routes the best 80 to the four SDRs and explains every decision. The signal weights and scoring rules live in Leadership settings on the right: change any of them, before or after the run, and the lists re-rank instantly.`)}
     </section>
     <div class="intro-grid">
       <div class="card pad span-2 stack">
@@ -350,7 +350,7 @@ function pBoard() {
       <div class="faint more-line">${h.length > 4 ? `+${h.length - 4} more heated up · ` : ''}${all.length - h.length} in your sequence</div></div>
       <div class="sec-h">New this week <span>${r.lists.filter(l => l.sdr === t.name).length}</span></div>`;
   };
-  return `${linaNote(state.week ? 'One column per SDR. On top, accounts carried over from earlier weeks that heated up with a new signal: call those again. Below, this week\'s new accounts, best first.' : 'One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.', tierLegend())}
+  return `${guideNote(state.week ? 'One column per SDR. On top, accounts carried over from earlier weeks that heated up with a new signal: call those again. Below, this week\'s new accounts, best first.' : 'One column per SDR, best account first. Click any account to see how its score was built and why it landed with that rep.', tierLegend())}
   <div class="board">${r.team.map(t => {
     const rows = r.lists.filter(l => l.sdr === t.name);
     const open = state.expanded[t.id];
@@ -400,7 +400,7 @@ function pFunnel() {
   };
   const r = state.result;
   const intro = `Every one of the ${total} accounts ends up somewhere, for a stated reason, and the split changes every week. This Monday ${r.knownSignals} signals are known${prev ? `, ${r.newSignals.length} of them new since last week` : ''}. Click a step to see its accounts.`;
-  return `${linaNote(intro)}
+  return `${guideNote(intro)}
   <div class="funnel">${steps.filter(x => x.items.length || !x.minus || (before && before[x.k])).map(x => `
     <div class="card fstep ${x.final ? 'final' : ''}" data-funnel="${x.k}">
       <div class="fl"><b>${x.minus ? '− ' : x.final ? '= ' : ''}${x.label}</b><span>${x.desc}</span></div>
@@ -428,7 +428,7 @@ function pExplain() {
   const path = pts.map(([d, v], i) => `${i ? 'L' : 'M'}${(d / lb) * 300},${100 - v * 90}`).join(' ');
   const tbl = (sec, label) => `<table><thead><tr><th>${label}</th><th class="r">Multiplier</th></tr></thead><tbody>${S.entries(sec).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r num">×${esc(v)}</td></tr>`).join('')}</tbody></table>`;
   const devSteps = S.entries('fit_devices').map(([k, v]) => [Number(k), v]).sort((a, b) => b[0] - a[0]);
-  return `${linaNote('The score answers one question: which accounts should this rep call this week? Each part below is a setting leadership can change.')}
+  return `${guideNote('The score answers one question: which accounts should this rep call this week? Each part below is a setting leadership can change.')}
   <div class="formula">
     <div class="card fx"><div class="t">Intent</div><p>Is the account moving right now? Each signal's weight × its freshness.</p></div><div class="op">×</div>
     <div class="card fx"><div class="t">Fit</div><p>How valuable is a win? Devices in the field, plus provider and size.</p></div><div class="op">×</div>
@@ -532,7 +532,7 @@ function pFixes() {
   };
   for (const i of state.result.issues) (groups[label(i)] = groups[label(i)] || []).push(i);
   const names = Object.fromEntries(state.result.scored.map(s => [s.account_id, s.company_name]));
-  return `${linaNote('The brief says the data is deliberately messy. Every correction is logged here, so the result can be audited and the source data fixed upstream.')}
+  return `${guideNote('The brief says the data is deliberately messy. Every correction is logged here, so the result can be audited and the source data fixed upstream.')}
   ${Object.entries(groups).map(([g, list]) => `<details class="set" ${state.fixOpen === g ? 'open' : ''} data-fix="${esc(g)}"><summary>${esc(g)} <span class="chip">${list.length}</span></summary><div class="sb"><p class="why">${esc(why[g] || '')}</p>
     <div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Problem</th><th>Action</th></tr></thead><tbody>${list.map(i => `<tr><td>${esc(names[i.item] || i.item)} <span class="faint mono">${names[i.item] ? esc(i.item) : ''}</span></td><td>${esc(i.problem)}</td><td>${esc(i.action)}</td></tr>`).join('')}</tbody></table></div></div></details>`).join('')}`;
 }
@@ -609,7 +609,7 @@ function briefHtml(b) {
 }
 function message(t) { return briefText(brief(t)); }
 function pMessages() {
-  return `${linaNote("Each rep's Monday brief is a briefing, not the list, with the same shape whether they have 15 accounts or 25: where to start, a line per baked potato, a few names for the rest, and heads-ups on AEs and closed-lost history. Every name opens the account. No scores: they mean nothing to a rep.", tierLegend())}
+  return `${guideNote("Each rep's Monday brief is a briefing, not the list, with the same shape whether they have 15 accounts or 25: where to start, a line per baked potato, a few names for the rest, and heads-ups on AEs and closed-lost history. Every name opens the account. No scores: they mean nothing to a rep.", tierLegend())}
     <div class="msgs">${state.result.team.map(t => `<div class="card msg"><div class="mh"><span>To <b>${esc(t.name)}</b> · Monday 07:00</span><button class="btn small" data-copy="${esc(t.id)}">Copy</button></div><div class="mail">${briefHtml(brief(t))}</div></div>`).join('')}</div>`;
 }
 
@@ -661,7 +661,7 @@ function pAll() {
     return `<select data-colf="${c.k}"><option value="">All</option>${opts(c).map(o => `<option ${String(v) === String(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   };
   const active = Object.values(f).filter(v => v !== undefined && v !== '').length;
-  return `${linaNote('Every account, one row each, with where it ended up. Click a column header to sort, use the row under it to filter, and click any row to open the account.')}<div class="toolbar"><span class="muted" style="font-size:13px"><b style="color:var(--text)">${items.length}</b> of ${all.length} accounts</span>
+  return `${guideNote('Every account, one row each, with where it ended up. Click a column header to sort, use the row under it to filter, and click any row to open the account.')}<div class="toolbar"><span class="muted" style="font-size:13px"><b style="color:var(--text)">${items.length}</b> of ${all.length} accounts</span>
     ${active ? `<button class="btn small" id="clearFilters">Clear ${active} filter${active > 1 ? 's' : ''}</button>` : ''}</div>
     <div class="card"><div class="tbl-wrap all-tbl"><table><thead>
       <tr>${ALL_COLS.map(c => `<th class="sortable ${c.num ? 'r' : ''} ${state.sort.key === c.k ? 'on' : ''}" data-sort="${c.k}">${c.label}<span class="arr">${state.sort.key === c.k ? (state.sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span></th>`).join('')}</tr>
@@ -750,7 +750,7 @@ function moversHtml(c, prevLabel = 'Last week') {
 function pWeeks() {
   const k = state.week, cur = state.weeks[k], c = weekCompare(k), prev = c.prev;
   const prevLabel = k ? `${weekLabel(k - 1)} (${dayShort(prev.date)})` : `the Monday before (${dayShort(prev.date)})`;
-  const note = linaNote(`Same three files, replayed as consecutive Mondays: each week only sees the signals dated up to that day. Every account is either new this week or carried over, and its food tier says how hot it is. A carried-over account that gets a new signal turns hotter and goes back to the top of its rep's list.`);
+  const note = guideNote(`Same three files, replayed as consecutive Mondays: each week only sees the signals dated up to that day. Every account is either new this week or carried over, and its food tier says how hot it is. A carried-over account that gets a new signal turns hotter and goes back to the top of its rep's list.`);
   const list = rows => `<ul class="reasons">${rows.map(([n, label]) => `<li><b>${n}</b>${label}</li>`).join('')}</ul>`;
   // 1. what the new accounts look like, by food
   const foods = ['A', 'B', 'C', 'P'].map(t => [cur.lists.filter(l => tier(l) === t).length, `${tierName[t]}: ${tierAction[t]}`]);
