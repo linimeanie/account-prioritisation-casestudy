@@ -291,11 +291,6 @@ export const DEFAULT_SETTINGS = [
   "value": 1.1
  },
  {
-  "section": "fit_provider",
-  "key": "emnify",
-  "value": 0
- },
- {
   "section": "fit_size",
   "key": "1-10",
   "value": 0.85

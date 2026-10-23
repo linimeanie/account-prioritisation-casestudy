@@ -2,14 +2,12 @@
 
 The same cleaning, scoring and routing as the website, as an n8n automation.
 
-![The workflow in n8n, with its explanatory sticky notes](canvas.png)
-
 ![Workflow diagram](workflow.svg)
 
 **How it runs:** upload the three case files (accounts, signals, sdrs) in the n8n form, and the workflow returns one Excel file with each SDR's ranked list. An optional fourth file, `settings.xlsx`, overrides the leadership settings.
 
 ## Import it
-1. In n8n (cloud or self-hosted, tested on n8n 2.8.4): **Create Workflow → ⋯ → Import from File** → `emnify-prioritisation.n8n.json`.
+1. In n8n (cloud or self-hosted, tested on n8n 2.8.4): **Create Workflow → ⋯ → Import from File** → `account-prioritisation.n8n.json`.
 2. Click **Execute workflow**, open the form and select all three Excel files at once.
 3. Submit. The SDR lists download as `sdr_lists_week_of_<date>.xlsx`.
 

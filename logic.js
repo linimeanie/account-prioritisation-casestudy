@@ -1,4 +1,4 @@
-// emnify weekly account prioritisation: clean -> score -> route -> explain.
+// Weekly account prioritisation: clean -> score -> route -> explain.
 // Same logic as the "Score and route" node in the n8n workflow. The only addition is
 // `breakdown` on each scored account, so the dashboard can show how every score was built.
 

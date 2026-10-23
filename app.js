@@ -169,7 +169,7 @@ function run() {
 // ---------- render ----------
 // ---------- survive a page reload ----------
 // Kept in sessionStorage: it survives refreshes in the same tab, and is gone when the tab is closed.
-const STORE_DATA = 'emnify-prio-data-v1', STORE_UI = 'emnify-prio-ui-v1';
+const STORE_DATA = 'prio-data-v1', STORE_UI = 'prio-ui-v1';
 let savedDataRef = null;
 function saveState() {
   try {
@@ -273,7 +273,7 @@ function renderIntro() {
       <div class="card how-card"><div class="n">2</div><b>Score</b><p>Intent (how strong and fresh the signals are) × fit (devices in the field) × CRM stage (customers and open deals stay with AEs) × leadership boost.</p></div>
       <div class="card how-card"><div class="n">3</div><b>Route</b><p>Best score first, within each SDR's territory, until their weekly capacity is full. Accounts touched in the last two weeks rest, so nobody is over-contacted.</p></div>
     </div>
-    <footer>Prototype for the emnify GTM Engineer case study. All companies and people are fictional. The same logic runs as an <a href="https://github.com/linimeanie/emnify-casestudy/tree/main/n8n" target="_blank" rel="noopener">n8n workflow</a>; this page is a transparent front end over it.</footer>
+    <footer>Prototype for a GTM Engineer case study. All companies and people are fictional. The same logic runs as an <a href="https://github.com/linimeanie/account-prioritisation-casestudy/tree/main/n8n" target="_blank" rel="noopener">n8n workflow</a>; this page is a transparent front end over it.</footer>
   </div>`;
 }
 
@@ -376,7 +376,7 @@ function funnelSteps(res = state.result) {
   const by = f => sc.filter(f);
   const lb = S.get('general', 'lookback_days');
   return [
-    { k: 'all', label: 'Accounts in the list', desc: 'Every account emnify sourced for the motion', items: sc, color: 'var(--faint)' },
+    { k: 'all', label: 'Accounts in the list', desc: 'Every account sourced for the motion', items: sc, color: 'var(--faint)' },
     { k: 'crm', label: 'Already owned by sales or CS', desc: 'Customers and open deals belong to AEs and CS', items: by(s => s.status.startsWith('Excluded: CRM')), minus: true, color: 'var(--bad)' },
     { k: 'lead', label: 'Excluded by leadership', desc: 'Accounts or segments switched off in settings', items: by(s => s.status.startsWith('Excluded by')), minus: true, color: 'var(--bad)' },
     { k: 'seq', label: 'Carried over from earlier weeks', desc: 'Already on a rep\'s list, so they take no new slot', items: by(s => s.status.startsWith('In sequence') || s.status.startsWith('Back on fire')), minus: true, color: 'var(--info)' },
@@ -465,7 +465,7 @@ function pExplain() {
       <p>Each additional <i>type</i> adds <b>${Math.round(100 * (S.get('general', 'multi_type_bonus') ?? .15))}%</b>. Pricing visits plus engineering hires plus a new CTO means several teams are moving, which is what a real buying committee looks like.</p>
     </div>
     <div class="card"><h3>4. Fit: devices first</h3>
-      <p>emnify earns per connected device, so devices in the field are the best proxy for deal size. Unknown values count as ×1, so missing data never punishes an account.</p>
+      <p>Connectivity is billed per connected device, so devices in the field are the best proxy for deal size. Unknown values count as ×1, so missing data never punishes an account.</p>
       <div class="tbl-wrap"><table><thead><tr><th>Devices in the field</th><th class="r">Multiplier</th></tr></thead><tbody>${devSteps.map(([k, v], i) => `<tr><td>${i === 0 ? `${fmt0(k)}+` : `${fmt0(k)} – ${fmt0(devSteps[i - 1][0] - 1)}`}</td><td class="r num">×${esc(v)}</td></tr>`).join('')}</tbody></table></div>
     </div>
     <div class="card"><h3>5. Provider and company size</h3>
@@ -1071,7 +1071,7 @@ function paintThemeBtn() { const b = document.getElementById('themeBtn'); if (b)
 document.getElementById('themeBtn')?.addEventListener('click', () => {
   const next = isDark() ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
-  try { localStorage.setItem('emnify-theme', next); } catch {}
+  try { localStorage.setItem('prio-theme', next); } catch {}
   paintThemeBtn();
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', paintThemeBtn);

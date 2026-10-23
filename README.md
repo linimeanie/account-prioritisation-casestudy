@@ -1,4 +1,4 @@
-# Weekly account prioritisation (emnify GTM Engineer case study)
+# Weekly account prioritisation (GTM Engineer case study)
 
 A browser-only prototype that turns 500 accounts and their buying signals into each SDR's best accounts for the week, and explains every decision.
 
